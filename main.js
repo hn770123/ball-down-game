@@ -130,9 +130,17 @@ function checkGameOver() {
     // 1. ラベルが 'ball_' で始まる
     // 2. Y座標（上端 = position.y - radius）がデッドラインより上 (つまり、y の値が deadlineHeight より小さい)
     // 3. 速度がほぼ0（静止している）
+    // 4. 生成から3秒（3000ms）以上経過していること
+
+    const now = Date.now();
 
     for (const body of bodies) {
         if (body.label && body.label.startsWith('ball_')) {
+            // 生成直後のボールは判定から除外する（3秒間の猶予）
+            if (body.createdAt && (now - body.createdAt < 3000)) {
+                continue;
+            }
+
             // ボディの半径を取得 (circleの場合、boundsから計算可能ですが、簡易的に生成時の半径を用います)
             // body.circleRadius は設定に依存するため、ここでは bounds でチェックします
             const topY = body.bounds.min.y;
@@ -244,6 +252,9 @@ function dropBall(x) {
         label: `ball_${ballType.level}` // 後で衝突判定に使用
     });
 
+    // 生成時刻を記録（ゲームオーバー判定の猶予時間用）
+    newBall.createdAt = Date.now();
+
     // ボールをMatter.jsの世界に追加
     Composite.add(Game.engine.world, newBall);
 
@@ -316,6 +327,9 @@ function handleCollision(event) {
                             render: { fillStyle: nextBallType.color },
                             label: `ball_${nextBallType.level}`
                         });
+
+                        // 生成時刻を記録（ゲームオーバー判定の猶予時間用）
+                        newBall.createdAt = Date.now();
 
                         bodiesToAdd.push(newBall);
                     }
