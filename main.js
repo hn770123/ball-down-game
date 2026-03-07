@@ -104,7 +104,100 @@ function init() {
     // 衝突イベントの登録
     Matter.Events.on(Game.engine, 'collisionStart', handleCollision);
 
-    // TODO: 初期状態のUI描画、イベントリスナー登録
+    // ゲームオーバー判定を定期的に実行
+    Game.checkGameOverInterval = setInterval(checkGameOver, 1000);
+
+    // リスタートボタンのイベントリスナー登録
+    const restartButton = document.getElementById('restart-button');
+    if (restartButton) {
+        restartButton.addEventListener('click', restartGame);
+    }
+}
+
+/**
+ * 定期的に実行され、ボールがデッドラインを超えて静止しているか判定します。
+ */
+function checkGameOver() {
+    if (Game.isGameOver) return;
+
+    const container = document.getElementById('game-container');
+    const deadlineHeight = container.clientHeight * 0.15; // top: 15% に対応
+
+    // ワールド内の全てのボディを取得
+    const bodies = Composite.allBodies(Game.engine.world);
+
+    // ゲームオーバーとみなす条件:
+    // 1. ラベルが 'ball_' で始まる
+    // 2. Y座標（上端 = position.y - radius）がデッドラインより上 (つまり、y の値が deadlineHeight より小さい)
+    // 3. 速度がほぼ0（静止している）
+
+    for (const body of bodies) {
+        if (body.label && body.label.startsWith('ball_')) {
+            // ボディの半径を取得 (circleの場合、boundsから計算可能ですが、簡易的に生成時の半径を用います)
+            // body.circleRadius は設定に依存するため、ここでは bounds でチェックします
+            const topY = body.bounds.min.y;
+
+            if (topY < deadlineHeight) {
+                // 速度（velocity）をチェック
+                const speed = Math.sqrt(body.velocity.x ** 2 + body.velocity.y ** 2);
+                if (speed < 0.1) {
+                    console.log("ゲームオーバーを検知しました", body);
+                    handleGameOver();
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/**
+ * ゲームオーバー処理を実行します。
+ */
+function handleGameOver() {
+    if (Game.isGameOver) return;
+    Game.isGameOver = true;
+
+    // 定期チェックを停止
+    if (Game.checkGameOverInterval) {
+        clearInterval(Game.checkGameOverInterval);
+    }
+
+    // オーバーレイを表示
+    const overlay = document.getElementById('game-over-overlay');
+    if (overlay) {
+        overlay.style.display = 'flex';
+    }
+}
+
+/**
+ * ゲームをリセットしてリスタートします。
+ */
+function restartGame() {
+    console.log("ゲームをリスタートします");
+
+    // オーバーレイを非表示
+    const overlay = document.getElementById('game-over-overlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+    }
+
+    // スコアリセット
+    Game.score = 0;
+    updateScore(0);
+
+    // ワールド内のボールをすべて削除
+    const bodies = Composite.allBodies(Game.engine.world);
+    const ballsToRemove = bodies.filter(b => b.label && b.label.startsWith('ball_'));
+    Composite.remove(Game.engine.world, ballsToRemove);
+
+    // 状態リセット
+    Game.isGameOver = false;
+
+    // 次のボール再設定
+    setNextBallType();
+
+    // ゲームオーバー判定を再開
+    Game.checkGameOverInterval = setInterval(checkGameOver, 1000);
 }
 
 /**
