@@ -25,16 +25,72 @@ const Game = {
     nextBallType: null
 };
 
+// Matter.js のモジュールエイリアス
+const Engine = Matter.Engine,
+      Render = Matter.Render,
+      Runner = Matter.Runner,
+      Bodies = Matter.Bodies,
+      Composite = Matter.Composite;
+
 /**
  * ゲームの初期化処理を行います。
  * ウィンドウの読み込み完了時に呼び出され、Matter.jsのセットアップや
  * 初期UIの構築、イベントリスナーの登録を担当します。
- * （※Step 1では空関数として定義）
  */
 function init() {
     console.log("ゲーム初期化開始");
-    // TODO: Matter.jsのエンジン初期化（Step 2）
-    // TODO: 壁・床の作成（Step 2）
+
+    const container = document.getElementById('game-container');
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+
+    // Matter.js エンジンの作成
+    Game.engine = Engine.create();
+
+    // Matter.js レンダラーの作成とコンテナへの追加
+    Game.render = Render.create({
+        element: container,
+        engine: Game.engine,
+        options: {
+            width: width,
+            height: height,
+            wireframes: false, // 塗りつぶし描画を有効にする
+            background: '#111' // デフォルト背景色（暗い色）
+        }
+    });
+
+    Render.run(Game.render);
+
+    // Runner の作成と実行
+    Game.runner = Runner.create();
+    Runner.run(Game.runner, Game.engine);
+
+    // 壁と床の作成
+    const wallOptions = {
+        isStatic: true,
+        render: { fillStyle: '#333' }
+    };
+    const groundOptions = {
+        isStatic: true,
+        render: { fillStyle: '#555' }
+    };
+
+    const wallThickness = 60;
+
+    const ground = Bodies.rectangle(width / 2, height + wallThickness / 2 - 10, width, wallThickness, groundOptions);
+    const leftWall = Bodies.rectangle(0 - wallThickness / 2, height / 2, wallThickness, height * 2, wallOptions);
+    const rightWall = Bodies.rectangle(width + wallThickness / 2, height / 2, wallThickness, height * 2, wallOptions);
+
+    Composite.add(Game.engine.world, [ground, leftWall, rightWall]);
+
+    // テスト用の落下物体の作成
+    const testBox = Bodies.rectangle(width / 2, 50, 40, 40, {
+        restitution: 0.5, // 反発係数
+        render: { fillStyle: '#ff6b81' }
+    });
+
+    Composite.add(Game.engine.world, [testBox]);
+
     // TODO: 初期状態のUI描画、イベントリスナー登録
 }
 
