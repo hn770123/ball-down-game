@@ -101,6 +101,9 @@ function init() {
     // 次のボールを決定してUIを更新
     setNextBallType();
 
+    // 衝突イベントの登録
+    Matter.Events.on(Game.engine, 'collisionStart', handleCollision);
+
     // TODO: 初期状態のUI描画、イベントリスナー登録
 }
 
@@ -151,6 +154,85 @@ function dropBall(x) {
 
     // 次のボールを再設定
     setNextBallType();
+}
+
+/**
+ * 衝突イベントのハンドラー。
+ * 同じレベルのボール同士が衝突した際、合体処理を行います。
+ *
+ * @param {object} event - Matter.js のイベントオブジェクト
+ */
+function handleCollision(event) {
+    const pairs = event.pairs;
+
+    // 今回のイベントで合体処理済みのボディIDを記録（多重合体を防ぐ）
+    const mergedBodyIds = new Set();
+
+    for (let i = 0; i < pairs.length; i++) {
+        const bodyA = pairs[i].bodyA;
+        const bodyB = pairs[i].bodyB;
+
+        // すでに合体処理されたボディならスキップ
+        if (mergedBodyIds.has(bodyA.id) || mergedBodyIds.has(bodyB.id)) {
+            continue;
+        }
+
+        // 両方ともボールか（labelが 'ball_' で始まるか）確認
+        if (bodyA.label.startsWith('ball_') && bodyB.label.startsWith('ball_')) {
+            // 同じレベルのボールか判定
+            if (bodyA.label === bodyB.label) {
+                const currentLevelStr = bodyA.label.split('_')[1];
+                const currentLevel = parseInt(currentLevelStr, 10);
+
+                // レベル8（黒）の場合は特大ボーナスだけ入り、新たなボールは生成されない
+                if (currentLevel === 8) {
+                    console.log("最大ボール（黒）同士が衝突し、消滅しました！");
+
+                    // 削除処理の記録
+                    mergedBodyIds.add(bodyA.id);
+                    mergedBodyIds.add(bodyB.id);
+
+                    // 衝突した2つのボールを削除
+                    Composite.remove(Game.engine.world, [bodyA, bodyB]);
+
+                    // スコア更新（後で実装）
+                    // updateScore(ボーナスポイント);
+
+                } else if (currentLevel < 8) {
+                    console.log(`レベル ${currentLevel} のボール同士が合体しました！`);
+
+                    // 削除処理の記録
+                    mergedBodyIds.add(bodyA.id);
+                    mergedBodyIds.add(bodyB.id);
+
+                    // 衝突した2つのボールを削除
+                    Composite.remove(Game.engine.world, [bodyA, bodyB]);
+
+                    // 新しいボール（レベル+1）の生成
+                    const nextLevel = currentLevel + 1;
+                    const nextBallType = BALL_TYPES.find(b => b.level === nextLevel);
+
+                    if (nextBallType) {
+                        // 中間点を計算
+                        const newX = (bodyA.position.x + bodyB.position.x) / 2;
+                        const newY = (bodyA.position.y + bodyB.position.y) / 2;
+
+                        const newBall = Bodies.circle(newX, newY, nextBallType.radius, {
+                            restitution: 0.5,
+                            render: { fillStyle: nextBallType.color },
+                            label: `ball_${nextBallType.level}`
+                        });
+
+                        // 新しいボールを世界に追加
+                        Composite.add(Game.engine.world, newBall);
+                    }
+
+                    // スコア更新（後で実装）
+                    // updateScore(合体ポイント);
+                }
+            }
+        }
+    }
 }
 
 /**
