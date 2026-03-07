@@ -33,6 +33,21 @@ const Engine = Matter.Engine,
       Composite = Matter.Composite;
 
 /**
+ * 8種類のボールの定義
+ * レベル1（最小）からレベル8（最大）までのサイズと色を設定します。
+ */
+const BALL_TYPES = [
+    { level: 1, radius: 15, color: '#ff6b81', name: 'Pink' },   // 1. ピンク
+    { level: 2, radius: 25, color: '#ff4757', name: 'Red' },    // 2. 赤
+    { level: 3, radius: 35, color: '#1e90ff', name: 'Blue' },   // 3. 青
+    { level: 4, radius: 45, color: '#9c88ff', name: 'Purple' }, // 4. 紫
+    { level: 5, radius: 55, color: '#eccc68', name: 'Yellow' }, // 5. 黄色
+    { level: 6, radius: 65, color: '#2ed573', name: 'Green' },  // 6. 緑
+    { level: 7, radius: 80, color: '#d2b48c', name: 'Brown' },  // 7. 茶色（※色は適宜パステル調に調整）
+    { level: 8, radius: 100, color: '#2f3542', name: 'Black' }  // 8. 黒
+];
+
+/**
  * ゲームの初期化処理を行います。
  * ウィンドウの読み込み完了時に呼び出され、Matter.jsのセットアップや
  * 初期UIの構築、イベントリスナーの登録を担当します。
@@ -83,28 +98,59 @@ function init() {
 
     Composite.add(Game.engine.world, [ground, leftWall, rightWall]);
 
-    // テスト用の落下物体の作成
-    const testBox = Bodies.rectangle(width / 2, 50, 40, 40, {
-        restitution: 0.5, // 反発係数
-        render: { fillStyle: '#ff6b81' }
-    });
-
-    Composite.add(Game.engine.world, [testBox]);
+    // 次のボールを決定してUIを更新
+    setNextBallType();
 
     // TODO: 初期状態のUI描画、イベントリスナー登録
 }
 
 /**
+ * 次に落下させるボール（レベル1〜3の中からランダム）を決定し、Game.nextBallTypeにセットします。
+ */
+function setNextBallType() {
+    // 0, 1, 2 のいずれかをランダムに取得（レベル1〜3に対応）
+    const randomIndex = Math.floor(Math.random() * 3);
+    Game.nextBallType = BALL_TYPES[randomIndex];
+    console.log(`次のボールが決定されました: レベル ${Game.nextBallType.level} (${Game.nextBallType.name})`);
+
+    // UIのプレビュー表示を更新
+    const previewElement = document.getElementById('next-ball-preview');
+    if (previewElement && Game.nextBallType) {
+        previewElement.style.backgroundColor = Game.nextBallType.color;
+        // プレビューのサイズを調整（大きすぎないようにする）
+        const previewSize = Game.nextBallType.radius;
+        previewElement.style.width = `${previewSize}px`;
+        previewElement.style.height = `${previewSize}px`;
+        // プレビューコンテナの配置上、中央に表示されるようにマージンなどを調整
+        previewElement.style.margin = 'auto';
+    }
+}
+
+/**
  * 指定した座標からボールを落下させる処理です。
  * ユーザーのタップ操作などによりトリガーされます。
- * （※Step 1では空関数として定義）
  *
  * @param {number} x - 落とすボールのx座標（ピクセル）
  */
 function dropBall(x) {
-    if (Game.isGameOver) return;
+    if (Game.isGameOver || !Game.nextBallType) return;
     console.log(`ボール落下処理: x座標 = ${x}`);
-    // TODO: Matter.jsの世界に新しいボールボディを追加（Step 3）
+
+    const ballType = Game.nextBallType;
+    const y = 50; // ボールの出現位置 (固定Y座標)
+
+    // 新しいボールのボディを作成
+    const newBall = Bodies.circle(x, y, ballType.radius, {
+        restitution: 0.5, // 反発係数
+        render: { fillStyle: ballType.color },
+        label: `ball_${ballType.level}` // 後で衝突判定に使用
+    });
+
+    // ボールをMatter.jsの世界に追加
+    Composite.add(Game.engine.world, newBall);
+
+    // 次のボールを再設定
+    setNextBallType();
 }
 
 /**
@@ -121,10 +167,24 @@ function updateScore(points) {
 // ページの読み込みが完了したら初期化関数を呼び出す
 window.addEventListener('load', init);
 
-// 画面タップイベントのプレースホルダー（ゲームコンテナに対するタップ操作）
-document.getElementById('game-container').addEventListener('click', (e) => {
+// 画面タップ・クリックイベント（ゲームコンテナに対する操作）
+// スマホのタップにも対応するため pointerdown イベントを利用する
+const gameContainer = document.getElementById('game-container');
+gameContainer.addEventListener('pointerdown', (e) => {
     // コンテナ内のクリックされたx座標を取得
-    const rect = e.target.getBoundingClientRect();
-    const x = e.clientX - rect.left;
+    const rect = gameContainer.getBoundingClientRect();
+    let x = e.clientX - rect.left;
+
+    // クリック位置が壁にめり込まないように補正
+    const currentBallType = Game.nextBallType;
+    if (currentBallType) {
+        const radius = currentBallType.radius;
+        const minX = radius;
+        const maxX = rect.width - radius;
+
+        if (x < minX) x = minX;
+        if (x > maxX) x = maxX;
+    }
+
     dropBall(x);
 });
