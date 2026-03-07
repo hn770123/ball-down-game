@@ -159,6 +159,9 @@ function dropBall(x) {
 /**
  * 衝突イベントのハンドラー。
  * 同じレベルのボール同士が衝突した際、合体処理を行います。
+ * 物理エンジンの計算中のため、ボディの追加削除は `Matter.Events.on(engine, 'afterUpdate', ...)`
+ * などのタイミングで行うのが理想的ですが、簡易的な実装として `setTimeout` を使用して
+ * 現在の物理ステップの直後に処理を遅延させます。
  *
  * @param {object} event - Matter.js のイベントオブジェクト
  */
@@ -168,11 +171,16 @@ function handleCollision(event) {
     // 今回のイベントで合体処理済みのボディIDを記録（多重合体を防ぐ）
     const mergedBodyIds = new Set();
 
+    // イベントループ後に削除・追加するボディのリスト
+    const bodiesToRemove = [];
+    const bodiesToAdd = [];
+    let scoreToAdd = 0;
+
     for (let i = 0; i < pairs.length; i++) {
         const bodyA = pairs[i].bodyA;
         const bodyB = pairs[i].bodyB;
 
-        // すでに合体処理されたボディならスキップ
+        // すでに合体処理としてマークされたボディならスキップ
         if (mergedBodyIds.has(bodyA.id) || mergedBodyIds.has(bodyB.id)) {
             continue;
         }
@@ -184,29 +192,18 @@ function handleCollision(event) {
                 const currentLevelStr = bodyA.label.split('_')[1];
                 const currentLevel = parseInt(currentLevelStr, 10);
 
+                // 削除処理の記録
+                mergedBodyIds.add(bodyA.id);
+                mergedBodyIds.add(bodyB.id);
+                bodiesToRemove.push(bodyA, bodyB);
+
                 // レベル8（黒）の場合は特大ボーナスだけ入り、新たなボールは生成されない
                 if (currentLevel === 8) {
                     console.log("最大ボール（黒）同士が衝突し、消滅しました！");
-
-                    // 削除処理の記録
-                    mergedBodyIds.add(bodyA.id);
-                    mergedBodyIds.add(bodyB.id);
-
-                    // 衝突した2つのボールを削除
-                    Composite.remove(Game.engine.world, [bodyA, bodyB]);
-
-                    // スコア更新（後で実装）
-                    // updateScore(ボーナスポイント);
-
+                    // 特大ボーナス（例: 1000点）
+                    scoreToAdd += 1000;
                 } else if (currentLevel < 8) {
                     console.log(`レベル ${currentLevel} のボール同士が合体しました！`);
-
-                    // 削除処理の記録
-                    mergedBodyIds.add(bodyA.id);
-                    mergedBodyIds.add(bodyB.id);
-
-                    // 衝突した2つのボールを削除
-                    Composite.remove(Game.engine.world, [bodyA, bodyB]);
 
                     // 新しいボール（レベル+1）の生成
                     const nextLevel = currentLevel + 1;
@@ -223,15 +220,29 @@ function handleCollision(event) {
                             label: `ball_${nextBallType.level}`
                         });
 
-                        // 新しいボールを世界に追加
-                        Composite.add(Game.engine.world, newBall);
+                        bodiesToAdd.push(newBall);
                     }
 
-                    // スコア更新（後で実装）
-                    // updateScore(合体ポイント);
+                    // 合体ポイント（例: レベル * 10 点）
+                    scoreToAdd += currentLevel * 10;
                 }
             }
         }
+    }
+
+    // 物理エンジンのステップ更新後に安全にボディの追加・削除、スコア更新を行う
+    if (bodiesToRemove.length > 0 || bodiesToAdd.length > 0 || scoreToAdd > 0) {
+        setTimeout(() => {
+            if (bodiesToRemove.length > 0) {
+                Composite.remove(Game.engine.world, bodiesToRemove);
+            }
+            if (bodiesToAdd.length > 0) {
+                Composite.add(Game.engine.world, bodiesToAdd);
+            }
+            if (scoreToAdd > 0) {
+                updateScore(scoreToAdd);
+            }
+        }, 0);
     }
 }
 
@@ -243,7 +254,12 @@ function handleCollision(event) {
 function updateScore(points) {
     Game.score += points;
     console.log(`スコア更新: 現在のスコア = ${Game.score}`);
-    // TODO: HTMLのスコア要素を更新する処理
+
+    // HTMLのスコア要素を更新
+    const scoreElement = document.getElementById('score');
+    if (scoreElement) {
+        scoreElement.textContent = Game.score;
+    }
 }
 
 // ページの読み込みが完了したら初期化関数を呼び出す
