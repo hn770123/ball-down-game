@@ -387,6 +387,13 @@ const gameContainer = document.getElementById('game-container');
 let isPointerDown = false;
 let pointerX = 0;
 
+// --- シェイク検知用変数 ---
+let shakePermissionGranted = false;
+let lastShakeTime = 0;
+const SHAKE_THRESHOLD = 15; // 激しく振ったと判定するしきい値
+const SHAKE_COOLDOWN = 500; // 連続で反応しないためのクールダウン時間 (ミリ秒)
+let lastAcc = { x: null, y: null, z: null };
+
 // プレビュー用のボール表示要素（HTMLに追加して操作するため取得/作成）
 let previewBallElement = document.getElementById('drop-preview-ball');
 if (!previewBallElement) {
@@ -464,9 +471,100 @@ function updatePreviewUI(x) {
     guidelineElement.style.top = `${dropY}px`;
 }
 
+// シェイク（加速度）イベントのリスナー
+function handleDeviceMotion(event) {
+    if (Game.isGameOver) return;
+
+    // 重力を含まない加速度を取得（取得できない場合は重力込みの加速度を代用）
+    let acc = event.acceleration;
+    if (!acc || acc.x === null) {
+        acc = event.accelerationIncludingGravity;
+    }
+
+    if (!acc || acc.x === null) return;
+
+    if (lastAcc.x !== null) {
+        // 加速度の変化量を計算
+        const deltaX = Math.abs(acc.x - lastAcc.x);
+        const deltaY = Math.abs(acc.y - lastAcc.y);
+        const deltaZ = Math.abs(acc.z - lastAcc.z);
+
+        // 変化量の合計がしきい値を超えたら「振った」とみなす
+        if (deltaX + deltaY + deltaZ > SHAKE_THRESHOLD) {
+            const now = Date.now();
+            // クールダウン期間を過ぎているかチェック
+            if (now - lastShakeTime > SHAKE_COOLDOWN) {
+                lastShakeTime = now;
+                applyShakeForceToBalls();
+            }
+        }
+    }
+
+    // 現在の加速度を保存して次回の計算に使う
+    lastAcc = { x: acc.x, y: acc.y, z: acc.z };
+}
+
+// ボールに上向きの力を加える（ポップコーンのような挙動）
+function applyShakeForceToBalls() {
+    console.log("スマホのシェイクを検知しました！ボールを跳ねさせます。");
+
+    // ワールド内のすべてのボディを取得
+    const bodies = Composite.allBodies(Game.engine.world);
+
+    bodies.forEach(body => {
+        // ボールであるか判定
+        if (body.label && body.label.startsWith('ball_')) {
+            // 現在の速度を維持しつつ、上方向（yがマイナス）への力と少しのランダムな横方向の力を加える
+            const forceX = (Math.random() - 0.5) * 0.05; // 左右にわずかに散らす
+            const forceY = -0.05 - (Math.random() * 0.05); // 上方向にポンと跳ねる力
+
+            // ボディの質量（mass）に比例して力を調整すると均等に跳ねるが、
+            // あえて重いボールは少しだけしか跳ねないようにする場合は固定の力を与えたりする。
+            // 今回は質量に関係なくある程度跳ねるように mass を掛けた力にする
+            const appliedForce = {
+                x: forceX * body.mass,
+                y: forceY * body.mass
+            };
+
+            // Matter.jsのapplyForceを使ってボディの中心に力を加える
+            Matter.Body.applyForce(body, body.position, appliedForce);
+        }
+    });
+}
+
+// デバイスモーションセンサーの権限リクエスト
+function requestMotionPermission() {
+    if (shakePermissionGranted) return;
+
+    // iOS 13+ で DeviceMotionEvent.requestPermission が存在する場合
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+        DeviceMotionEvent.requestPermission()
+            .then(permissionState => {
+                if (permissionState === 'granted') {
+                    window.addEventListener('devicemotion', handleDeviceMotion);
+                    shakePermissionGranted = true;
+                    console.log("モーションセンサーのアクセスが許可されました。");
+                } else {
+                    console.log("モーションセンサーのアクセスが拒否されました。");
+                }
+            })
+            .catch(console.error);
+    } else {
+        // Androidなど許可不要な場合はそのまま登録
+        window.addEventListener('devicemotion', handleDeviceMotion);
+        shakePermissionGranted = true;
+        console.log("モーションセンサーを利用します（許可不要）。");
+    }
+}
+
 // イベントリスナーの登録
 // タッチ・マウスダウン開始
 gameContainer.addEventListener('pointerdown', (e) => {
+    // 最初のタップ時にセンサーへのアクセス許可をリクエスト
+    if (!shakePermissionGranted) {
+        requestMotionPermission();
+    }
+
     if (Game.isGameOver || !Game.nextBallType) return;
     isPointerDown = true;
     pointerX = getConstrainedX(e);
