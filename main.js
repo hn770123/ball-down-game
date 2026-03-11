@@ -112,13 +112,40 @@ function init() {
     if (restartButton) {
         restartButton.addEventListener('click', restartGame);
     }
+
+    // スタートボタンのイベントリスナー登録（ジェスチャーでの権限リクエスト用）
+    const startButton = document.getElementById('start-button');
+    if (startButton) {
+        startButton.addEventListener('click', startGame);
+    }
+
+    // 最初はゲーム進行を停止（スタートボタンが押されるまで）
+    Game.isStarted = false;
+}
+
+/**
+ * ゲームを開始します。スタートボタンから呼ばれます。
+ */
+function startGame() {
+    console.log("ゲームを開始します。");
+
+    // iOS 13+ などのために DeviceMotionEvent.requestPermission をリクエスト
+    requestMotionPermission();
+
+    // スタートオーバーレイを非表示にする
+    const startOverlay = document.getElementById('game-start-overlay');
+    if (startOverlay) {
+        startOverlay.style.display = 'none';
+    }
+
+    Game.isStarted = true;
 }
 
 /**
  * 定期的に実行され、ボールがデッドラインを超えて静止しているか判定します。
  */
 function checkGameOver() {
-    if (Game.isGameOver) return;
+    if (Game.isGameOver || !Game.isStarted) return;
 
     const container = document.getElementById('game-container');
     const deadlineHeight = container.clientHeight * 0.15; // top: 15% に対応
@@ -237,7 +264,7 @@ function setNextBallType() {
  * @param {number} x - 落とすボールのx座標（ピクセル）
  */
 function dropBall(x) {
-    if (Game.isGameOver || !Game.nextBallType) return;
+    if (Game.isGameOver || !Game.isStarted || !Game.nextBallType) return;
     console.log(`ボール落下処理: x座標 = ${x}`);
 
     const ballType = Game.nextBallType;
@@ -448,7 +475,7 @@ function getConstrainedX(e) {
 
 // プレビューUIの更新
 function updatePreviewUI(x) {
-    if (Game.isGameOver || !Game.nextBallType) {
+    if (Game.isGameOver || !Game.isStarted || !Game.nextBallType) {
         previewBallElement.style.display = 'none';
         guidelineElement.style.display = 'none';
         return;
@@ -560,12 +587,7 @@ function requestMotionPermission() {
 // イベントリスナーの登録
 // タッチ・マウスダウン開始
 gameContainer.addEventListener('pointerdown', (e) => {
-    // 最初のタップ時にセンサーへのアクセス許可をリクエスト
-    if (!shakePermissionGranted) {
-        requestMotionPermission();
-    }
-
-    if (Game.isGameOver || !Game.nextBallType) return;
+    if (Game.isGameOver || !Game.isStarted || !Game.nextBallType) return;
     isPointerDown = true;
     pointerX = getConstrainedX(e);
     updatePreviewUI(pointerX);
@@ -573,7 +595,7 @@ gameContainer.addEventListener('pointerdown', (e) => {
 
 // タッチ・マウス移動
 gameContainer.addEventListener('pointermove', (e) => {
-    if (!isPointerDown || Game.isGameOver || !Game.nextBallType) return;
+    if (!isPointerDown || Game.isGameOver || !Game.isStarted || !Game.nextBallType) return;
     pointerX = getConstrainedX(e);
     updatePreviewUI(pointerX);
 });
