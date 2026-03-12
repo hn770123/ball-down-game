@@ -147,6 +147,13 @@ function startGame() {
 function checkGameOver() {
     if (Game.isGameOver || !Game.isStarted) return;
 
+    const now = Date.now();
+
+    // シェイク後3秒間はゲームオーバー判定を行わない（改善案A）
+    if (Game.lastShakeTime && (now - Game.lastShakeTime < 3000)) {
+        return;
+    }
+
     const container = document.getElementById('game-container');
     const deadlineHeight = container.clientHeight * 0.15; // top: 15% に対応
 
@@ -158,8 +165,6 @@ function checkGameOver() {
     // 2. Y座標（上端 = position.y - radius）がデッドラインより上 (つまり、y の値が deadlineHeight より小さい)
     // 3. 速度がほぼ0（静止している）
     // 4. 生成から3秒（3000ms）以上経過していること
-
-    const now = Date.now();
 
     for (const body of bodies) {
         if (body.label && body.label.startsWith('ball_')) {
@@ -538,16 +543,17 @@ function applyShakeForceToBalls() {
     // ワールド内のすべてのボディを取得
     const bodies = Composite.allBodies(Game.engine.world);
 
+    // シェイクした時刻を記録し、ゲームオーバー判定を一時停止する
+    Game.lastShakeTime = Date.now();
+
     bodies.forEach(body => {
         // ボールであるか判定
         if (body.label && body.label.startsWith('ball_')) {
-            // 現在の速度を維持しつつ、上方向（yがマイナス）への力と少しのランダムな横方向の力を加える
-            const forceX = (Math.random() - 0.5) * 0.05; // 左右にわずかに散らす
-            const forceY = -0.05 - (Math.random() * 0.05); // 上方向にポンと跳ねる力
+            // 高さを約1/5にとどめるため、上方向の力を現在の約半分に減らす（0.05 -> 0.02, ランダム要素も0.05 -> 0.02程度に）
+            // 横方向の力は少し増やして散らばりやすくする（0.05 -> 0.15）
+            const forceX = (Math.random() - 0.5) * 0.15; // 左右により散らす
+            const forceY = -0.02 - (Math.random() * 0.02); // 上方向への力を弱める
 
-            // ボディの質量（mass）に比例して力を調整すると均等に跳ねるが、
-            // あえて重いボールは少しだけしか跳ねないようにする場合は固定の力を与えたりする。
-            // 今回は質量に関係なくある程度跳ねるように mass を掛けた力にする
             const appliedForce = {
                 x: forceX * body.mass,
                 y: forceY * body.mass
