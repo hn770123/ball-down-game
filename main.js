@@ -517,17 +517,26 @@ function handleDeviceMotion(event) {
 
     if (lastAcc.x !== null) {
         // 加速度の変化量を計算
-        const deltaX = Math.abs(acc.x - lastAcc.x);
-        const deltaY = Math.abs(acc.y - lastAcc.y);
-        const deltaZ = Math.abs(acc.z - lastAcc.z);
+        const deltaX = acc.x - lastAcc.x;
+        const deltaY = acc.y - lastAcc.y;
+        const deltaZ = acc.z - lastAcc.z;
+
+        const absDeltaX = Math.abs(deltaX);
+        const absDeltaY = Math.abs(deltaY);
+        const absDeltaZ = Math.abs(deltaZ);
 
         // 変化量の合計がしきい値を超えたら「振った」とみなす
-        if (deltaX + deltaY + deltaZ > SHAKE_THRESHOLD) {
+        if (absDeltaX + absDeltaY + absDeltaZ > SHAKE_THRESHOLD) {
             const now = Date.now();
             // クールダウン期間を過ぎているかチェック
             if (now - lastShakeTime > SHAKE_COOLDOWN) {
                 lastShakeTime = now;
-                applyShakeForceToBalls();
+                // 振った方向と強さ（加速度の差分）を渡す
+                // 画面座標系：右がX正、下がY正
+                // デバイス座標系 (Portrait): 右がX正、上がY正 (※ブラウザやOSによるが一般的な標準)
+                // 振った方向への「力」とするため、加速度の変化量をそのまま力の方向とする
+                // Y軸はデバイスと画面で逆になることが多いので反転させる
+                applyShakeForceToBalls(deltaX, -deltaY);
             }
         }
     }
@@ -536,9 +545,9 @@ function handleDeviceMotion(event) {
     lastAcc = { x: acc.x, y: acc.y, z: acc.z };
 }
 
-// ボールに上向きの力を加える（ポップコーンのような挙動）
-function applyShakeForceToBalls() {
-    console.log("スマホのシェイクを検知しました！ボールを跳ねさせます。");
+// 振った方向と強さに応じてボールに力を加える
+function applyShakeForceToBalls(forceX, forceY) {
+    console.log(`スマホのシェイクを検知: X=${forceX.toFixed(2)}, Y=${forceY.toFixed(2)}`);
 
     // ワールド内のすべてのボディを取得
     const bodies = Composite.allBodies(Game.engine.world);
@@ -546,17 +555,18 @@ function applyShakeForceToBalls() {
     // シェイクした時刻を記録し、ゲームオーバー判定を一時停止する
     Game.lastShakeTime = Date.now();
 
+    // 力の強さを調整するための係数（適宜調整）
+    const forceMultiplier = 0.005;
+
     bodies.forEach(body => {
         // ボールであるか判定
         if (body.label && body.label.startsWith('ball_')) {
-            // 高さを約1/5にとどめるため、上方向の力を現在の約半分に減らす（0.05 -> 0.02, ランダム要素も0.05 -> 0.02程度に）
-            // 横方向の力は少し増やして散らばりやすくする（0.05 -> 0.15）
-            const forceX = (Math.random() - 0.5) * 0.15; // 左右により散らす
-            const forceY = -0.02 - (Math.random() * 0.02); // 上方向への力を弱める
 
+            // 振った方向と強さをそのまま力にマッピング
+            // 下方向に振った（forceY > 0）場合はそのまま下へ押し付ける
             const appliedForce = {
-                x: forceX * body.mass,
-                y: forceY * body.mass
+                x: forceX * forceMultiplier * body.mass,
+                y: forceY * forceMultiplier * body.mass
             };
 
             // Matter.jsのapplyForceを使ってボディの中心に力を加える
