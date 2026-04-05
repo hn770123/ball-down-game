@@ -37,14 +37,14 @@ const Engine = Matter.Engine,
  * レベル1（最小）からレベル8（最大）までのサイズと色を設定します。
  */
 const BALL_TYPES = [
-    { level: 1, radius: 15, color: '#ff6b81', name: 'Pink' },   // 1. ピンク
-    { level: 2, radius: 25, color: '#ff4757', name: 'Red' },    // 2. 赤
-    { level: 3, radius: 35, color: '#1e90ff', name: 'Blue' },   // 3. 青
-    { level: 4, radius: 45, color: '#9c88ff', name: 'Purple' }, // 4. 紫
-    { level: 5, radius: 55, color: '#eccc68', name: 'Yellow' }, // 5. 黄色
-    { level: 6, radius: 65, color: '#2ed573', name: 'Green' },  // 6. 緑
-    { level: 7, radius: 80, color: '#d2b48c', name: 'Brown' },  // 7. 茶色（※色は適宜パステル調に調整）
-    { level: 8, radius: 100, color: '#2f3542', name: 'Black' }  // 8. 黒
+    { level: 1, radius: 15, color: '#ff6b81', name: 'Pink', emoji: '😀' },   // 1. ピンク
+    { level: 2, radius: 25, color: '#ff4757', name: 'Red', emoji: '😃' },    // 2. 赤
+    { level: 3, radius: 35, color: '#1e90ff', name: 'Blue', emoji: '😄' },   // 3. 青
+    { level: 4, radius: 45, color: '#9c88ff', name: 'Purple', emoji: '😁' }, // 4. 紫
+    { level: 5, radius: 55, color: '#eccc68', name: 'Yellow', emoji: '😆' }, // 5. 黄色
+    { level: 6, radius: 65, color: '#2ed573', name: 'Green', emoji: '🥹' },  // 6. 緑
+    { level: 7, radius: 80, color: '#d2b48c', name: 'Brown', emoji: '☺️' },  // 7. 茶色（※色は適宜パステル調に調整）
+    { level: 8, radius: 100, color: '#2f3542', name: 'Black', emoji: '😊' }  // 8. 黒
 ];
 
 /**
@@ -95,8 +95,10 @@ function init() {
     const ground = Bodies.rectangle(width / 2, height + wallThickness / 2 - 10, width, wallThickness, groundOptions);
     const leftWall = Bodies.rectangle(0 - wallThickness / 2, height / 2, wallThickness, height * 2, wallOptions);
     const rightWall = Bodies.rectangle(width + wallThickness / 2, height / 2, wallThickness, height * 2, wallOptions);
+    // ボールが上から飛び出さないように蓋を追加（出現位置y=50より上に設置）
+    const ceiling = Bodies.rectangle(width / 2, -wallThickness / 2 - 200, width * 2, wallThickness, wallOptions);
 
-    Composite.add(Game.engine.world, [ground, leftWall, rightWall]);
+    Composite.add(Game.engine.world, [ground, leftWall, rightWall, ceiling]);
 
     // 次のボールを決定してUIを更新
     setNextBallType();
@@ -121,6 +123,37 @@ function init() {
 
     // 最初はゲーム進行を停止（スタートボタンが押されるまで）
     Game.isStarted = false;
+
+    // 絵文字の描画処理を追加
+    Matter.Events.on(Game.render, 'afterRender', function() {
+        const context = Game.render.context;
+        const bodies = Composite.allBodies(Game.engine.world);
+
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+
+        for (let i = 0; i < bodies.length; i++) {
+            const body = bodies[i];
+            if (body.label && body.label.startsWith('ball_')) {
+                const levelStr = body.label.split('_')[1];
+                const level = parseInt(levelStr, 10);
+                const ballType = BALL_TYPES.find(b => b.level === level);
+
+                if (ballType && ballType.emoji) {
+                    const fontSize = ballType.radius * 1.2; // ボールのサイズに合わせる
+                    context.font = `${fontSize}px Arial`;
+
+                    // 回転を考慮して描画
+                    context.save();
+                    context.translate(body.position.x, body.position.y);
+                    context.rotate(body.angle);
+                    context.fillText(ballType.emoji, 0, 0);
+                    context.restore();
+                }
+            }
+        }
+    });
+
 }
 
 /**
@@ -555,18 +588,24 @@ function applyShakeForceToBalls(forceX, forceY) {
     // シェイクした時刻を記録し、ゲームオーバー判定を一時停止する
     Game.lastShakeTime = Date.now();
 
-    // 力の強さを調整するための係数（適宜調整）
-    const forceMultiplier = 0.005;
+    // 力の強さを調整するための基準となる係数
+    const baseForceMultiplier = 0.015;
 
     bodies.forEach(body => {
         // ボールであるか判定
         if (body.label && body.label.startsWith('ball_')) {
+            const levelStr = body.label.split('_')[1];
+            const level = parseInt(levelStr, 10);
 
-            // 振った方向と強さをそのまま力にマッピング
-            // 下方向に振った（forceY > 0）場合はそのまま下へ押し付ける
+            // レベルが大きい（ボールが大きい）ほど動きにくくする
+            // 質量(mass)を掛けないことで、重いボールほど加速度(a = F/m)が小さくなり、動きにくくなります。
+            // さらにレベルに反比例させて力を減衰させます（レベル1は1倍、レベル8は1/8の力）
+            const levelMultiplier = 1.0 / level;
+
+            // 基本の力に、ボールごとの倍率を掛ける
             const appliedForce = {
-                x: forceX * forceMultiplier * body.mass,
-                y: forceY * forceMultiplier * body.mass
+                x: forceX * baseForceMultiplier * levelMultiplier,
+                y: forceY * baseForceMultiplier * levelMultiplier
             };
 
             // Matter.jsのapplyForceを使ってボディの中心に力を加える
