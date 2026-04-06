@@ -162,6 +162,17 @@ function init() {
 function startGame() {
     console.log("ゲームを開始します。");
 
+    // 音声の自動再生制限を解除するため、ユーザーのインタラクション時に一度音声を再生・即停止する
+    mergeSound.play().then(() => {
+        mergeSound.pause();
+        mergeSound.currentTime = 0;
+    }).catch(e => console.log("mergeSound初期化エラー", e));
+
+    destroySound.play().then(() => {
+        destroySound.pause();
+        destroySound.currentTime = 0;
+    }).catch(e => console.log("destroySound初期化エラー", e));
+
     // iOS 13+ などのために DeviceMotionEvent.requestPermission をリクエスト
     requestMotionPermission();
 
@@ -371,10 +382,12 @@ function handleCollision(event) {
                 // レベル8（黒）の場合は特大ボーナスだけ入り、新たなボールは生成されない
                 if (currentLevel === 8) {
                     console.log("最大ボール（黒）同士が衝突し、消滅しました！");
+                    playSound(destroySound);
                     // 特大ボーナス（例: 1000点）
                     scoreToAdd += 1000;
                 } else if (currentLevel < 8) {
                     console.log(`レベル ${currentLevel} のボール同士が合体しました！`);
+                    playSound(mergeSound);
 
                     // 新しいボール（レベル+1）の生成
                     const nextLevel = currentLevel + 1;
@@ -446,6 +459,21 @@ function updateScore(points) {
 
 // ページの読み込みが完了したら初期化関数を呼び出す
 window.addEventListener('load', init);
+
+// --- 音声ファイルの設定 ---
+const mergeSound = new Audio('assets/sounds/merge.wav');
+const destroySound = new Audio('assets/sounds/destroy.wav');
+
+/**
+ * 連続で鳴らすためにオーディオを再生する関数
+ * @param {HTMLAudioElement} audio
+ */
+function playSound(audio) {
+    if (!audio) return;
+    // クローンを作成して再生することで、連続して重なって音が鳴るようにする
+    const clonedAudio = audio.cloneNode();
+    clonedAudio.play().catch(e => console.log("音声の再生がブロックされました", e));
+}
 
 // --- 操作性の向上と落下位置プレビューの実装 ---
 const gameContainer = document.getElementById('game-container');
