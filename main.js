@@ -588,8 +588,8 @@ function applyShakeForceToBalls(forceX, forceY) {
     // シェイクした時刻を記録し、ゲームオーバー判定を一時停止する
     Game.lastShakeTime = Date.now();
 
-    // 力の強さを調整するための基準となる係数
-    const baseForceMultiplier = 0.015;
+    // 力の強さを調整するための基準となる係数（質量に掛けるため小さめに設定）
+    const baseForceMultiplier = 0.005;
 
     bodies.forEach(body => {
         // ボールであるか判定
@@ -597,15 +597,15 @@ function applyShakeForceToBalls(forceX, forceY) {
             const levelStr = body.label.split('_')[1];
             const level = parseInt(levelStr, 10);
 
-            // レベルが大きい（ボールが大きい）ほど動きにくくする
-            // 質量(mass)を掛けないことで、重いボールほど加速度(a = F/m)が小さくなり、動きにくくなります。
-            // さらにレベルに反比例させて力を減衰させます（レベル1は1倍、レベル8は1/8の力）
-            const levelMultiplier = 1.0 / level;
+            // 全てのサイズのボールがある程度動くように、質量(mass)に比例した力を加える。
+            // その上で、大きいボールほど少しだけ動きにくくなるよう緩やかに減衰させる。
+            // （例: レベルが1上がるごとに5%減衰。レベル8で約65%の動きやすさ）
+            const levelMultiplier = 1.0 - (level - 1) * 0.05;
 
-            // 基本の力に、ボールごとの倍率を掛ける
+            // 基本の力 × 質量 × レベルごとの減衰率
             const appliedForce = {
-                x: forceX * baseForceMultiplier * levelMultiplier,
-                y: forceY * baseForceMultiplier * levelMultiplier
+                x: forceX * baseForceMultiplier * body.mass * levelMultiplier,
+                y: forceY * baseForceMultiplier * body.mass * levelMultiplier
             };
 
             // Matter.jsのapplyForceを使ってボディの中心に力を加える
