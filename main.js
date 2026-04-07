@@ -125,9 +125,13 @@ function init() {
     Game.isStarted = false;
 
     // 音声ファイルの事前読み込み
-    loadAudioBuffer('assets/sounds/merge.wav').then(buffer => {
-        mergeAudioBuffer = buffer;
-        console.log("合体音の読み込みが完了しました");
+    loadAudioBuffer('assets/sounds/merge_high.wav').then(buffer => {
+        mergeHighAudioBuffer = buffer;
+        console.log("合体音（高）の読み込みが完了しました");
+    });
+    loadAudioBuffer('assets/sounds/merge_low.wav').then(buffer => {
+        mergeLowAudioBuffer = buffer;
+        console.log("合体音（低）の読み込みが完了しました");
     });
     loadAudioBuffer('assets/sounds/destroy.wav').then(buffer => {
         destroyAudioBuffer = buffer;
@@ -393,7 +397,13 @@ function handleCollision(event) {
                     scoreToAdd += 1000;
                 } else if (currentLevel < 8) {
                     console.log(`レベル ${currentLevel} のボール同士が合体しました！`);
-                    playSound(mergeAudioBuffer);
+
+                    // レベルに応じて音を使い分ける（レベル1-4は高音、5-7は低音）
+                    if (currentLevel <= 4) {
+                        playSound(mergeHighAudioBuffer);
+                    } else {
+                        playSound(mergeLowAudioBuffer);
+                    }
 
                     // 新しいボール（レベル+1）の生成
                     const nextLevel = currentLevel + 1;
@@ -471,7 +481,8 @@ window.addEventListener('load', init);
 // ブラウザ間の互換性を考慮してAudioContextを取得
 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
 let audioCtx = new AudioContextClass(); // AudioContextのインスタンス
-let mergeAudioBuffer = null; // 合体音のデータ
+let mergeHighAudioBuffer = null; // 合体音（高）のデータ
+let mergeLowAudioBuffer = null; // 合体音（低）のデータ
 let destroyAudioBuffer = null; // 消滅音のデータ
 
 /**
