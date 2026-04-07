@@ -124,6 +124,16 @@ function init() {
     // 最初はゲーム進行を停止（スタートボタンが押されるまで）
     Game.isStarted = false;
 
+    // 音声ファイルの事前読み込み
+    loadAudioBuffer('assets/sounds/merge.wav').then(buffer => {
+        mergeAudioBuffer = buffer;
+        console.log("合体音の読み込みが完了しました");
+    });
+    loadAudioBuffer('assets/sounds/destroy.wav').then(buffer => {
+        destroyAudioBuffer = buffer;
+        console.log("消滅音の読み込みが完了しました");
+    });
+
     // 絵文字の描画処理を追加
     Matter.Events.on(Game.render, 'afterRender', function() {
         const context = Game.render.context;
@@ -162,16 +172,12 @@ function init() {
 function startGame() {
     console.log("ゲームを開始します。");
 
-    // 音声の自動再生制限を解除するため、ユーザーのインタラクション時に一度音声を再生・即停止する
-    mergeSound.play().then(() => {
-        mergeSound.pause();
-        mergeSound.currentTime = 0;
-    }).catch(e => console.log("mergeSound初期化エラー", e));
-
-    destroySound.play().then(() => {
-        destroySound.pause();
-        destroySound.currentTime = 0;
-    }).catch(e => console.log("destroySound初期化エラー", e));
+    // Web Audio API の自動再生制限を解除するため、ユーザーインタラクション時にAudioContextを再開
+    if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().then(() => {
+            console.log("AudioContextが再開されました");
+        }).catch(e => console.log("AudioContext再開エラー", e));
+    }
 
     // iOS 13+ などのために DeviceMotionEvent.requestPermission をリクエスト
     requestMotionPermission();
@@ -382,12 +388,12 @@ function handleCollision(event) {
                 // レベル8（黒）の場合は特大ボーナスだけ入り、新たなボールは生成されない
                 if (currentLevel === 8) {
                     console.log("最大ボール（黒）同士が衝突し、消滅しました！");
-                    playSound(destroySound);
+                    playSound(destroyAudioBuffer);
                     // 特大ボーナス（例: 1000点）
                     scoreToAdd += 1000;
                 } else if (currentLevel < 8) {
                     console.log(`レベル ${currentLevel} のボール同士が合体しました！`);
-                    playSound(mergeSound);
+                    playSound(mergeAudioBuffer);
 
                     // 新しいボール（レベル+1）の生成
                     const nextLevel = currentLevel + 1;
@@ -460,19 +466,50 @@ function updateScore(points) {
 // ページの読み込みが完了したら初期化関数を呼び出す
 window.addEventListener('load', init);
 
-// --- 音声ファイルの設定 ---
-const mergeSound = new Audio('assets/sounds/merge.wav');
-const destroySound = new Audio('assets/sounds/destroy.wav');
+// --- 音声ファイルの設定 (Web Audio APIを使用) ---
+
+// ブラウザ間の互換性を考慮してAudioContextを取得
+const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+let audioCtx = new AudioContextClass(); // AudioContextのインスタンス
+let mergeAudioBuffer = null; // 合体音のデータ
+let destroyAudioBuffer = null; // 消滅音のデータ
 
 /**
- * 連続で鳴らすためにオーディオを再生する関数
- * @param {HTMLAudioElement} audio
+ * 音声ファイルを非同期で読み込み、デコードする関数
+ * @param {string} url - 音声ファイルのパス
+ * @returns {Promise<AudioBuffer|null>} デコードされた音声バッファ
  */
-function playSound(audio) {
-    if (!audio) return;
-    // クローンを作成して再生することで、連続して重なって音が鳴るようにする
-    const clonedAudio = audio.cloneNode();
-    clonedAudio.play().catch(e => console.log("音声の再生がブロックされました", e));
+async function loadAudioBuffer(url) {
+    try {
+        const response = await fetch(url);
+        const arrayBuffer = await response.arrayBuffer();
+        return await audioCtx.decodeAudioData(arrayBuffer);
+    } catch (e) {
+        console.error(`音声の読み込みに失敗しました: ${url}`, e);
+        return null;
+    }
+}
+
+/**
+ * デコード済みのバッファを使用して音声を再生する関数
+ * @param {AudioBuffer} buffer - 再生する音声のバッファデータ
+ */
+function playSound(buffer) {
+    // コンテキストやバッファが存在しない場合は処理しない
+    if (!audioCtx || !buffer) return;
+
+    // iOSなどの仕様でAudioContextがサスペンド（一時停止）状態になっている場合は再開する
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+
+    // 音声を再生するためのソースを作成
+    const source = audioCtx.createBufferSource();
+    source.buffer = buffer;
+
+    // 出力先（スピーカー）に接続して再生開始
+    source.connect(audioCtx.destination);
+    source.start(0);
 }
 
 // --- 操作性の向上と落下位置プレビューの実装 ---
