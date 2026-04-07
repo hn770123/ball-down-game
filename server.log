@@ -1,0 +1,5 @@
+127.0.0.1 - - [07/Apr/2026 21:08:39] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [07/Apr/2026 21:08:40] "GET /main.js HTTP/1.1" 200 -
+127.0.0.1 - - [07/Apr/2026 21:08:40] "GET /style.css HTTP/1.1" 200 -
+127.0.0.1 - - [07/Apr/2026 21:08:41] "GET /assets/sounds/merge.wav HTTP/1.1" 200 -
+127.0.0.1 - - [07/Apr/2026 21:08:41] "GET /assets/sounds/destroy.wav HTTP/1.1" 200 -
