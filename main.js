@@ -22,7 +22,11 @@ const Game = {
     engine: null,
     render: null,
     runner: null,
-    nextBallType: null
+    dropInterval: 3000, // 初期落下間隔（ミリ秒）
+    lastDropTime: 0,
+    nextDropScoreThreshold: 1000, // 次の間隔短縮スコア閾値
+    mouseConstraint: null,
+    draggedBody: null
 };
 
 // Matter.js のモジュールエイリアス
@@ -30,7 +34,9 @@ const Engine = Matter.Engine,
       Render = Matter.Render,
       Runner = Matter.Runner,
       Bodies = Matter.Bodies,
-      Composite = Matter.Composite;
+      Composite = Matter.Composite,
+      Mouse = Matter.Mouse,
+      MouseConstraint = Matter.MouseConstraint;
 
 /**
  * 8種類のボールの定義
@@ -100,8 +106,8 @@ function init() {
 
     Composite.add(Game.engine.world, [ground, leftWall, rightWall, ceiling]);
 
-    // 次のボールを決定してUIを更新
-    setNextBallType();
+    // マウス制約の追加（ボールを掴めるようにする）
+    setupMouseConstraint(container);
 
     // 衝突イベントの登録
     Matter.Events.on(Game.engine, 'collisionStart', handleCollision);
@@ -183,9 +189,6 @@ function startGame() {
         }).catch(e => console.log("AudioContext再開エラー", e));
     }
 
-    // iOS 13+ などのために DeviceMotionEvent.requestPermission をリクエスト
-    requestMotionPermission();
-
     // スタートオーバーレイを非表示にする
     const startOverlay = document.getElementById('game-start-overlay');
     if (startOverlay) {
@@ -193,6 +196,40 @@ function startGame() {
     }
 
     Game.isStarted = true;
+
+    // 自動落下の開始
+    startAutoDrop();
+}
+
+/**
+ * 自動落下ループを開始します。
+ */
+function startAutoDrop() {
+    if (Game.autoDropTimeout) {
+        clearTimeout(Game.autoDropTimeout);
+    }
+
+    const drop = () => {
+        if (Game.isGameOver || !Game.isStarted) return;
+
+        const container = document.getElementById('game-container');
+        const width = container.clientWidth;
+
+        // レベル1〜3からランダムに選択
+        const level = Math.floor(Math.random() * 3) + 1;
+        const ballType = BALL_TYPES.find(b => b.level === level);
+
+        // 左右の壁に当たらない範囲でランダムなX座標を決定
+        const margin = ballType.radius + 10;
+        const x = Math.random() * (width - margin * 2) + margin;
+
+        dropBall(x, level);
+
+        // 次の落下を予約
+        Game.autoDropTimeout = setTimeout(drop, Game.dropInterval);
+    };
+
+    Game.autoDropTimeout = setTimeout(drop, Game.dropInterval);
 }
 
 /**
@@ -277,6 +314,8 @@ function restartGame() {
 
     // スコアリセット
     Game.score = 0;
+    Game.dropInterval = 3000;
+    Game.nextDropScoreThreshold = 1000;
     updateScore(0);
 
     // ワールド内のボールをすべて削除
@@ -287,65 +326,84 @@ function restartGame() {
     // 状態リセット
     Game.isGameOver = false;
 
-    // 次のボール再設定
-    setNextBallType();
+    // 自動落下の再開
+    startAutoDrop();
 
     // ゲームオーバー判定を再開
     Game.checkGameOverInterval = setInterval(checkGameOver, 1000);
 }
 
 /**
- * 次に落下させるボール（レベル1〜3の中からランダム）を決定し、Game.nextBallTypeにセットします。
- */
-function setNextBallType() {
-    // 0, 1, 2 のいずれかをランダムに取得（レベル1〜3に対応）
-    const randomIndex = Math.floor(Math.random() * 3);
-    Game.nextBallType = BALL_TYPES[randomIndex];
-    console.log(`次のボールが決定されました: レベル ${Game.nextBallType.level} (${Game.nextBallType.name})`);
-
-    // UIのプレビュー表示を更新
-    const previewElement = document.getElementById('next-ball-preview');
-    if (previewElement && Game.nextBallType) {
-        previewElement.style.backgroundColor = Game.nextBallType.color;
-        // プレビューのサイズを調整（大きすぎないようにする）
-        const previewSize = Game.nextBallType.radius;
-        previewElement.style.width = `${previewSize}px`;
-        previewElement.style.height = `${previewSize}px`;
-        // プレビューコンテナの配置上、中央に表示されるようにマージンなどを調整
-        previewElement.style.margin = 'auto';
-    }
-}
-
-/**
- * 指定した座標からボールを落下させる処理です。
- * ユーザーのタップ操作などによりトリガーされます。
+ * 指定した座標とレベルからボールを落下させる処理です。
  *
  * @param {number} x - 落とすボールのx座標（ピクセル）
+ * @param {number} level - 落とすボールのレベル（1〜3）
  */
-function dropBall(x) {
-    if (Game.isGameOver || !Game.isStarted || !Game.nextBallType) return;
-    console.log(`ボール落下処理: x座標 = ${x}`);
+function dropBall(x, level) {
+    if (Game.isGameOver || !Game.isStarted) return;
 
-    const ballType = Game.nextBallType;
-    const y = 50; // ボールの出現位置 (固定Y座標)
+    const ballType = BALL_TYPES.find(b => b.level === level);
+    if (!ballType) return;
+
+    const y = -50; // 画面外上部から落下させる
 
     // 新しいボールのボディを作成
     const newBall = Bodies.circle(x, y, ballType.radius, {
-        restitution: 0.3, // 反発係数（跳ねすぎないよう少し抑える）
-        friction: 0.5,    // 摩擦を増やして転がりすぎを防ぐ
-        density: 0.005,   // 密度
+        restitution: 0.3,
+        friction: 0.5,
+        density: 0.005,
         render: { fillStyle: ballType.color },
-        label: `ball_${ballType.level}` // 後で衝突判定に使用
+        label: `ball_${ballType.level}`
     });
 
-    // 生成時刻を記録（ゲームオーバー判定の猶予時間用）
     newBall.createdAt = Date.now();
-
-    // ボールをMatter.jsの世界に追加
     Composite.add(Game.engine.world, newBall);
+}
 
-    // 次のボールを再設定
-    setNextBallType();
+/**
+ * マウス制約（ドラッグ操作）のセットアップ
+ */
+function setupMouseConstraint(container) {
+    const mouse = Mouse.create(container);
+
+    // スクロールを妨げないように、マウスイベントのデフォルト動作を維持する場合の設定
+    // ただしゲーム画面内ではドラッグしたいので、適切に調整
+    mouse.element.removeEventListener("mousewheel", mouse.mousewheel);
+    mouse.element.removeEventListener("DOMMouseScroll", mouse.mousewheel);
+
+    Game.mouseConstraint = MouseConstraint.create(Game.engine, {
+        mouse: mouse,
+        constraint: {
+            stiffness: 0.2,
+            render: {
+                visible: false
+            }
+        }
+    });
+
+    Composite.add(Game.engine.world, Game.mouseConstraint);
+
+    // ドラッグ開始時のイベント
+    Matter.Events.on(Game.mouseConstraint, 'startdrag', (event) => {
+        const body = event.body;
+        if (body.label && body.label.startsWith('ball_')) {
+            Game.draggedBody = body;
+            console.log("ボールを掴みました:", body.label);
+        } else {
+            // ボール以外（壁など）は掴めないようにする
+            Game.mouseConstraint.body = null;
+            Game.draggedBody = null;
+        }
+    });
+
+    // ドラッグ終了時のイベント
+    Matter.Events.on(Game.mouseConstraint, 'enddrag', (event) => {
+        Game.draggedBody = null;
+        console.log("ボールを離しました");
+    });
+
+    // レンダラーにマウスを同期させる
+    Game.render.mouse = mouse;
 }
 
 /**
@@ -367,6 +425,7 @@ function handleCollision(event) {
     const bodiesToRemove = [];
     const bodiesToAdd = [];
     let scoreToAdd = 0;
+    let nextDraggedBody = null;
 
     for (let i = 0; i < pairs.length; i++) {
         const bodyA = pairs[i].bodyA;
@@ -388,6 +447,10 @@ function handleCollision(event) {
                 mergedBodyIds.add(bodyA.id);
                 mergedBodyIds.add(bodyB.id);
                 bodiesToRemove.push(bodyA, bodyB);
+
+                // 現在掴んでいるボールが合体対象かチェック
+                const isDraggingA = (Game.draggedBody && Game.draggedBody.id === bodyA.id);
+                const isDraggingB = (Game.draggedBody && Game.draggedBody.id === bodyB.id);
 
                 // レベル8（黒）の場合は特大ボーナスだけ入り、新たなボールは生成されない
                 if (currentLevel === 8) {
@@ -426,6 +489,11 @@ function handleCollision(event) {
                         newBall.createdAt = Date.now();
 
                         bodiesToAdd.push(newBall);
+
+                        // 掴んでいたボールが合体した場合、新しいボールを掴み状態にする
+                        if (isDraggingA || isDraggingB) {
+                            nextDraggedBody = newBall;
+                        }
                     }
 
                     // 合体ポイント（例: レベル * 10 点）
@@ -444,6 +512,13 @@ function handleCollision(event) {
             if (bodiesToAdd.length > 0) {
                 Composite.add(Game.engine.world, bodiesToAdd);
             }
+
+            // 合体後のボールを掴み状態に更新
+            if (nextDraggedBody) {
+                Game.draggedBody = nextDraggedBody;
+                Game.mouseConstraint.body = nextDraggedBody;
+            }
+
             if (scoreToAdd > 0) {
                 updateScore(scoreToAdd);
             }
@@ -459,6 +534,13 @@ function handleCollision(event) {
 function updateScore(points) {
     Game.score += points;
     console.log(`スコア更新: 現在のスコア = ${Game.score}`);
+
+    // 1000点ごとに落下間隔を短くする (最小500ms)
+    while (Game.score >= Game.nextDropScoreThreshold) {
+        Game.dropInterval = Math.max(500, Game.dropInterval - 200);
+        Game.nextDropScoreThreshold += 1000;
+        console.log(`落下間隔が短縮されました: ${Game.dropInterval}ms`);
+    }
 
     // HTMLのスコア要素を更新
     const scoreElement = document.getElementById('score');
@@ -522,231 +604,3 @@ function playSound(buffer) {
     source.connect(audioCtx.destination);
     source.start(0);
 }
-
-// --- 操作性の向上と落下位置プレビューの実装 ---
-const gameContainer = document.getElementById('game-container');
-let isPointerDown = false;
-let pointerX = 0;
-
-// --- シェイク検知用変数 ---
-let shakePermissionGranted = false;
-let lastShakeTime = 0;
-const SHAKE_THRESHOLD = 15; // 激しく振ったと判定するしきい値
-const SHAKE_COOLDOWN = 500; // 連続で反応しないためのクールダウン時間 (ミリ秒)
-let lastAcc = { x: null, y: null, z: null };
-
-// プレビュー用のボール表示要素（HTMLに追加して操作するため取得/作成）
-let previewBallElement = document.getElementById('drop-preview-ball');
-if (!previewBallElement) {
-    previewBallElement = document.createElement('div');
-    previewBallElement.id = 'drop-preview-ball';
-    previewBallElement.style.position = 'absolute';
-    previewBallElement.style.borderRadius = '50%';
-    previewBallElement.style.pointerEvents = 'none'; // イベントを透過
-    previewBallElement.style.opacity = '0.5';        // 半透明
-    previewBallElement.style.display = 'none';
-    previewBallElement.style.transform = 'translate(-50%, -50%)'; // 中央揃え
-    previewBallElement.style.zIndex = '10';
-    gameContainer.appendChild(previewBallElement);
-}
-
-// 落下予定位置の縦線（ガイドライン）
-let guidelineElement = document.getElementById('drop-guideline');
-if (!guidelineElement) {
-    guidelineElement = document.createElement('div');
-    guidelineElement.id = 'drop-guideline';
-    guidelineElement.style.position = 'absolute';
-    guidelineElement.style.width = '2px';
-    guidelineElement.style.height = '100%';
-    guidelineElement.style.backgroundColor = 'rgba(255, 255, 255, 0.4)'; // 半透明の白線
-    guidelineElement.style.borderLeft = '2px dashed rgba(200, 200, 200, 0.6)';
-    guidelineElement.style.pointerEvents = 'none';
-    guidelineElement.style.display = 'none';
-    guidelineElement.style.transform = 'translateX(-50%)';
-    guidelineElement.style.zIndex = '9';
-    gameContainer.appendChild(guidelineElement);
-}
-
-// 入力座標の取得と制限
-function getConstrainedX(e) {
-    const rect = gameContainer.getBoundingClientRect();
-    let clientX = e.clientX;
-    if (e.touches && e.touches.length > 0) {
-        clientX = e.touches[0].clientX;
-    }
-
-    let x = clientX - rect.left;
-    const currentBallType = Game.nextBallType;
-    if (currentBallType) {
-        const radius = currentBallType.radius;
-        const minX = radius;
-        const maxX = rect.width - radius;
-        if (x < minX) x = minX;
-        if (x > maxX) x = maxX;
-    }
-    return x;
-}
-
-// プレビューUIの更新
-function updatePreviewUI(x) {
-    if (Game.isGameOver || !Game.isStarted || !Game.nextBallType) {
-        previewBallElement.style.display = 'none';
-        guidelineElement.style.display = 'none';
-        return;
-    }
-
-    const ballType = Game.nextBallType;
-    const dropY = 50; // ボールの出現Y座標
-
-    // プレビューボールのスタイル更新
-    previewBallElement.style.display = 'block';
-    previewBallElement.style.width = `${ballType.radius * 2}px`;
-    previewBallElement.style.height = `${ballType.radius * 2}px`;
-    previewBallElement.style.backgroundColor = ballType.color;
-    previewBallElement.style.left = `${x}px`;
-    previewBallElement.style.top = `${dropY}px`;
-
-    // ガイドラインのスタイル更新
-    guidelineElement.style.display = 'block';
-    guidelineElement.style.left = `${x}px`;
-    guidelineElement.style.top = `${dropY}px`;
-}
-
-// シェイク（加速度）イベントのリスナー
-function handleDeviceMotion(event) {
-    if (Game.isGameOver) return;
-
-    // 重力を含まない加速度を取得（取得できない場合は重力込みの加速度を代用）
-    let acc = event.acceleration;
-    if (!acc || acc.x === null) {
-        acc = event.accelerationIncludingGravity;
-    }
-
-    if (!acc || acc.x === null) return;
-
-    if (lastAcc.x !== null) {
-        // 加速度の変化量を計算
-        const deltaX = acc.x - lastAcc.x;
-        const deltaY = acc.y - lastAcc.y;
-        const deltaZ = acc.z - lastAcc.z;
-
-        const absDeltaX = Math.abs(deltaX);
-        const absDeltaY = Math.abs(deltaY);
-        const absDeltaZ = Math.abs(deltaZ);
-
-        // 変化量の合計がしきい値を超えたら「振った」とみなす
-        if (absDeltaX + absDeltaY + absDeltaZ > SHAKE_THRESHOLD) {
-            const now = Date.now();
-            // クールダウン期間を過ぎているかチェック
-            if (now - lastShakeTime > SHAKE_COOLDOWN) {
-                lastShakeTime = now;
-                // 振った方向と強さ（加速度の差分）を渡す
-                // 画面座標系：右がX正、下がY正
-                // デバイス座標系 (Portrait): 右がX正、上がY正 (※ブラウザやOSによるが一般的な標準)
-                // 振った方向への「力」とするため、加速度の変化量をそのまま力の方向とする
-                // Y軸はデバイスと画面で逆になることが多いので反転させる
-                applyShakeForceToBalls(deltaX, -deltaY);
-            }
-        }
-    }
-
-    // 現在の加速度を保存して次回の計算に使う
-    lastAcc = { x: acc.x, y: acc.y, z: acc.z };
-}
-
-// 振った方向と強さに応じてボールに力を加える
-function applyShakeForceToBalls(forceX, forceY) {
-    console.log(`スマホのシェイクを検知: X=${forceX.toFixed(2)}, Y=${forceY.toFixed(2)}`);
-
-    // ワールド内のすべてのボディを取得
-    const bodies = Composite.allBodies(Game.engine.world);
-
-    // シェイクした時刻を記録し、ゲームオーバー判定を一時停止する
-    Game.lastShakeTime = Date.now();
-
-    // 力の強さを調整するための基準となる係数（質量に掛けるため小さめに設定）
-    const baseForceMultiplier = 0.005;
-
-    bodies.forEach(body => {
-        // ボールであるか判定
-        if (body.label && body.label.startsWith('ball_')) {
-            const levelStr = body.label.split('_')[1];
-            const level = parseInt(levelStr, 10);
-
-            // 全てのサイズのボールがある程度動くように、質量(mass)に比例した力を加える。
-            // その上で、大きいボールほど少しだけ動きにくくなるよう緩やかに減衰させる。
-            // （例: レベルが1上がるごとに5%減衰。レベル8で約65%の動きやすさ）
-            const levelMultiplier = 1.0 - (level - 1) * 0.05;
-
-            // 基本の力 × 質量 × レベルごとの減衰率
-            const appliedForce = {
-                x: forceX * baseForceMultiplier * body.mass * levelMultiplier,
-                y: forceY * baseForceMultiplier * body.mass * levelMultiplier
-            };
-
-            // Matter.jsのapplyForceを使ってボディの中心に力を加える
-            Matter.Body.applyForce(body, body.position, appliedForce);
-        }
-    });
-}
-
-// デバイスモーションセンサーの権限リクエスト
-function requestMotionPermission() {
-    if (shakePermissionGranted) return;
-
-    // iOS 13+ で DeviceMotionEvent.requestPermission が存在する場合
-    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-        DeviceMotionEvent.requestPermission()
-            .then(permissionState => {
-                if (permissionState === 'granted') {
-                    window.addEventListener('devicemotion', handleDeviceMotion);
-                    shakePermissionGranted = true;
-                    console.log("モーションセンサーのアクセスが許可されました。");
-                } else {
-                    console.log("モーションセンサーのアクセスが拒否されました。");
-                }
-            })
-            .catch(console.error);
-    } else {
-        // Androidなど許可不要な場合はそのまま登録
-        window.addEventListener('devicemotion', handleDeviceMotion);
-        shakePermissionGranted = true;
-        console.log("モーションセンサーを利用します（許可不要）。");
-    }
-}
-
-// イベントリスナーの登録
-// タッチ・マウスダウン開始
-gameContainer.addEventListener('pointerdown', (e) => {
-    if (Game.isGameOver || !Game.isStarted || !Game.nextBallType) return;
-    isPointerDown = true;
-    pointerX = getConstrainedX(e);
-    updatePreviewUI(pointerX);
-});
-
-// タッチ・マウス移動
-gameContainer.addEventListener('pointermove', (e) => {
-    if (!isPointerDown || Game.isGameOver || !Game.isStarted || !Game.nextBallType) return;
-    pointerX = getConstrainedX(e);
-    updatePreviewUI(pointerX);
-});
-
-// タッチ・マウス離上
-gameContainer.addEventListener('pointerup', (e) => {
-    if (!isPointerDown) return;
-    isPointerDown = false;
-    previewBallElement.style.display = 'none';
-    guidelineElement.style.display = 'none';
-
-    // 最終位置を確定させて落下
-    pointerX = getConstrainedX(e);
-    dropBall(pointerX);
-});
-
-// 画面外に出た場合もリセット
-gameContainer.addEventListener('pointerleave', () => {
-    if (!isPointerDown) return;
-    isPointerDown = false;
-    previewBallElement.style.display = 'none';
-    guidelineElement.style.display = 'none';
-});
