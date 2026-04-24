@@ -29,24 +29,24 @@
         <main id="game-container">
             <!-- デッドライン（ゲームオーバーの基準線） -->
             <div id="deadline-line"></div>
-
-            <!-- スタート画面（センサー許可を求める） -->
-            <div id="game-start-overlay">
-                <div class="game-start-content">
-                    <h2>合体パズル</h2>
-                    <p>ボールを掴んで動かそう！<br>自動で落ちてくるボールをうまく合体させてね。</p>
-                    <button id="start-button">ゲーム開始</button>
-                </div>
-            </div>
-
-            <!-- ゲームオーバー画面 -->
-            <div id="game-over-overlay" style="display: none;">
-                <div class="game-over-content">
-                    <h2>Game Over</h2>
-                    <button id="restart-button">リスタート</button>
-                </div>
-            </div>
         </main>
+
+        <!-- スタート画面（オーバーレイ） -->
+        <div id="game-start-overlay">
+            <div class="game-start-content">
+                <h2>合体パズル</h2>
+                <p>ボールを掴んで動かそう！<br>自動で落ちてくるボールをうまく合体させてね。</p>
+                <button id="start-button">ゲーム開始</button>
+            </div>
+        </div>
+
+        <!-- ゲームオーバー画面（オーバーレイ） -->
+        <div id="game-over-overlay" style="display: none;">
+            <div class="game-over-content">
+                <h2>Game Over</h2>
+                <button id="restart-button">リスタート</button>
+            </div>
+        </div>
     </div>
 
     <!-- メインのスクリプト -->

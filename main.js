@@ -18,6 +18,7 @@
  */
 const Game = {
     score: 0,
+    isStarted: false,
     isGameOver: false,
     engine: null,
     render: null,
@@ -115,20 +116,30 @@ function init() {
     // ゲームオーバー判定を定期的に実行
     Game.checkGameOverInterval = setInterval(checkGameOver, 1000);
 
+    /**
+     * 重複実行を防ぐためのイベントハンドララッパー
+     * @param {Function} fn - 実行する関数
+     */
+    const handleAction = (e, fn) => {
+        e.preventDefault();
+        e.stopPropagation();
+        fn();
+    };
+
     // リスタートボタンのイベントリスナー登録
     const restartButton = document.getElementById('restart-button');
     if (restartButton) {
-        restartButton.addEventListener('click', restartGame);
+        // pointerdown で処理を行う。重複を防ぐため click は listen しないか、preventDefault する。
+        restartButton.addEventListener('pointerdown', (e) => handleAction(e, restartGame));
+        restartButton.addEventListener('click', (e) => e.preventDefault());
     }
 
-    // スタートボタンのイベントリスナー登録（ジェスチャーでの権限リクエスト用）
+    // スタートボタンのイベントリスナー登録
     const startButton = document.getElementById('start-button');
     if (startButton) {
-        startButton.addEventListener('click', startGame);
+        startButton.addEventListener('pointerdown', (e) => handleAction(e, startGame));
+        startButton.addEventListener('click', (e) => e.preventDefault());
     }
-
-    // 最初はゲーム進行を停止（スタートボタンが押されるまで）
-    Game.isStarted = false;
 
     // 音声ファイルの事前読み込み
     loadAudioBuffer('assets/sounds/merge_high.wav').then(buffer => {
@@ -180,12 +191,14 @@ function init() {
  * ゲームを開始します。スタートボタンから呼ばれます。
  */
 function startGame() {
+    if (Game.isStarted) return; // 二重起動防止
+
     console.log("ゲームを開始します。");
 
     // Web Audio API の自動再生制限を解除するため、ユーザーインタラクション時にAudioContextを再開
-    if (audioCtx && audioCtx.state === 'suspended') {
+    if (audioCtx) {
         audioCtx.resume().then(() => {
-            console.log("AudioContextが再開されました");
+            console.log("AudioContext状態:", audioCtx.state);
         }).catch(e => console.log("AudioContext再開エラー", e));
     }
 
