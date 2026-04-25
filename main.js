@@ -147,17 +147,17 @@ function init() {
     }
 
     // 音声ファイルの事前読み込み
-    loadAudioBuffer('assets/sounds/merge_high.wav').then(buffer => {
-        mergeHighAudioBuffer = buffer;
-        console.log("合体音（高）の読み込みが完了しました");
+    loadAudioBuffer('assets/sounds/merge.mp3').then(buffer => {
+        mergeAudioBuffer = buffer;
+        console.log("合体音の読み込みが完了しました");
     });
-    loadAudioBuffer('assets/sounds/merge_low.wav').then(buffer => {
-        mergeLowAudioBuffer = buffer;
-        console.log("合体音（低）の読み込みが完了しました");
+    loadAudioBuffer('assets/sounds/clear.mp3').then(buffer => {
+        clearAudioBuffer = buffer;
+        console.log("クリア音の読み込みが完了しました");
     });
-    loadAudioBuffer('assets/sounds/destroy.wav').then(buffer => {
-        destroyAudioBuffer = buffer;
-        console.log("消滅音の読み込みが完了しました");
+    loadAudioBuffer('assets/sounds/foul.mp3').then(buffer => {
+        foulAudioBuffer = buffer;
+        console.log("ゲームオーバー音の読み込みが完了しました");
     });
 
     // 絵文字の描画処理を追加
@@ -382,6 +382,9 @@ function handleGameOver() {
     if (Game.isGameOver || Game.isClearing) return;
     Game.isGameOver = true;
 
+    // ゲームオーバー音を再生
+    playSound(foulAudioBuffer);
+
     // タイマー類を停止
     if (Game.gameTimer) {
         clearInterval(Game.gameTimer);
@@ -458,6 +461,9 @@ function checkClear() {
  */
 function handleClear() {
     Game.isClearing = true;
+
+    // クリア音を再生
+    playSound(clearAudioBuffer);
 
     // タイマー停止
     if (Game.gameTimer) {
@@ -659,18 +665,14 @@ function handleCollision(event) {
                 // レベル8（黒）の場合は特大ボーナスだけ入り、新たなボールは生成されない
                 if (currentLevel === 8) {
                     console.log("最大ボール（黒）同士が衝突し、消滅しました！");
-                    playSound(destroyAudioBuffer);
+                    // 消滅音は鳴らさない
                     // 特大ボーナス（例: 1000点）
                     scoreToAdd += 1000;
                 } else if (currentLevel < 8) {
                     console.log(`レベル ${currentLevel} のボール同士が合体しました！`);
 
-                    // レベルに応じて音を使い分ける（レベル1-4は高音、5-7は低音）
-                    if (currentLevel <= 4) {
-                        playSound(mergeHighAudioBuffer);
-                    } else {
-                        playSound(mergeLowAudioBuffer);
-                    }
+                    // 合体音を再生
+                    playSound(mergeAudioBuffer);
 
                     // 新しいボール（レベル+1）の生成
                     const nextLevel = currentLevel + 1;
@@ -763,9 +765,9 @@ window.addEventListener('load', init);
 // ブラウザ間の互換性を考慮してAudioContextを取得
 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
 let audioCtx = new AudioContextClass(); // AudioContextのインスタンス
-let mergeHighAudioBuffer = null; // 合体音（高）のデータ
-let mergeLowAudioBuffer = null; // 合体音（低）のデータ
-let destroyAudioBuffer = null; // 消滅音のデータ
+let mergeAudioBuffer = null; // 合体音のデータ
+let clearAudioBuffer = null; // クリア音のデータ
+let foulAudioBuffer = null; // ゲームオーバー音のデータ
 
 /**
  * 音声ファイルを非同期で読み込み、デコードする関数
