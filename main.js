@@ -29,6 +29,7 @@ const Game = {
     dropQueue: [], // 落下待ちのボールリスト
     dropTimer: null,
     gameTimer: null,
+    goTimer: null,
     mouseConstraint: null,
     draggedBody: null,
     lastShakeTime: 0
@@ -246,18 +247,55 @@ function startStage(stageNum) {
     Game.dropQueue = generateBallSequence(targetValue);
     console.log(`生成されたボール数: ${Game.dropQueue.length}`);
 
-    // タイマー開始
+    // タイマー開始（ここではまだ開始せず、ボールが全て出た後の go!! 表示後に開始する）
+    if (Game.gameTimer) {
+        clearInterval(Game.gameTimer);
+        Game.gameTimer = null;
+    }
+    if (Game.goTimer) {
+        clearTimeout(Game.goTimer);
+        Game.goTimer = null;
+    }
+
+    // 落下処理開始
+    processDropQueue();
+}
+
+/**
+ * ゲームのカウントダウンタイマーを開始します。
+ */
+function startGameTimer() {
     if (Game.gameTimer) clearInterval(Game.gameTimer);
     Game.gameTimer = setInterval(() => {
+        if (Game.isGameOver || Game.isClearing) {
+            clearInterval(Game.gameTimer);
+            Game.gameTimer = null;
+            return;
+        }
         Game.timeLeft--;
         updateTimerUI();
         if (Game.timeLeft <= 0) {
             handleGameOver();
         }
     }, 1000);
+}
 
-    // 落下処理開始
-    processDropQueue();
+/**
+ * "go!!" の文字を表示し、1秒後に消してタイマーを開始します。
+ */
+function showGoOverlay() {
+    const goOverlay = document.getElementById('go-overlay');
+    if (goOverlay) {
+        goOverlay.style.display = 'flex';
+    }
+
+    Game.goTimer = setTimeout(() => {
+        if (goOverlay) {
+            goOverlay.style.display = 'none';
+        }
+        Game.goTimer = null;
+        startGameTimer();
+    }, 1000);
 }
 
 /**
@@ -265,7 +303,12 @@ function startStage(stageNum) {
  */
 function processDropQueue() {
     if (Game.isGameOver || !Game.isStarted || Game.isClearing) return;
-    if (Game.dropQueue.length === 0) return;
+
+    if (Game.dropQueue.length === 0) {
+        // 全てのボールが出現し終わったら "go!!" を表示
+        showGoOverlay();
+        return;
+    }
 
     // 一度に最大5個落とす
     const batchSize = Math.min(5, Game.dropQueue.length);
@@ -286,6 +329,9 @@ function processDropQueue() {
 
     // 次のバッチを0.5秒後に予約
     if (Game.dropQueue.length > 0) {
+        Game.dropTimer = setTimeout(processDropQueue, 500);
+    } else {
+        // 最後のバッチを落とした後、少し待ってから "go!!" を表示（最後のボールが画面内に入る程度の猶予）
         Game.dropTimer = setTimeout(processDropQueue, 500);
     }
 }
@@ -337,8 +383,22 @@ function handleGameOver() {
     Game.isGameOver = true;
 
     // タイマー類を停止
-    if (Game.gameTimer) clearInterval(Game.gameTimer);
-    if (Game.dropTimer) clearTimeout(Game.dropTimer);
+    if (Game.gameTimer) {
+        clearInterval(Game.gameTimer);
+        Game.gameTimer = null;
+    }
+    if (Game.dropTimer) {
+        clearTimeout(Game.dropTimer);
+        Game.dropTimer = null;
+    }
+    if (Game.goTimer) {
+        clearTimeout(Game.goTimer);
+        Game.goTimer = null;
+    }
+
+    // go!! オーバーレイを隠す
+    const goOverlay = document.getElementById('go-overlay');
+    if (goOverlay) goOverlay.style.display = 'none';
 
     // オーバーレイを表示
     const overlay = document.getElementById('game-over-overlay');
@@ -400,7 +460,18 @@ function handleClear() {
     Game.isClearing = true;
 
     // タイマー停止
-    if (Game.gameTimer) clearInterval(Game.gameTimer);
+    if (Game.gameTimer) {
+        clearInterval(Game.gameTimer);
+        Game.gameTimer = null;
+    }
+    if (Game.goTimer) {
+        clearTimeout(Game.goTimer);
+        Game.goTimer = null;
+    }
+
+    // go!! オーバーレイを隠す
+    const goOverlay = document.getElementById('go-overlay');
+    if (goOverlay) goOverlay.style.display = 'none';
 
     // クリアオーバーレイを表示
     const clearOverlay = document.getElementById('clear-overlay');
@@ -430,10 +501,22 @@ function restartGame() {
     if (gameOverOverlay) gameOverOverlay.style.display = 'none';
     const clearOverlay = document.getElementById('clear-overlay');
     if (clearOverlay) clearOverlay.style.display = 'none';
+    const goOverlay = document.getElementById('go-overlay');
+    if (goOverlay) goOverlay.style.display = 'none';
 
     // タイマー類をクリア
-    if (Game.gameTimer) clearInterval(Game.gameTimer);
-    if (Game.dropTimer) clearTimeout(Game.dropTimer);
+    if (Game.gameTimer) {
+        clearInterval(Game.gameTimer);
+        Game.gameTimer = null;
+    }
+    if (Game.dropTimer) {
+        clearTimeout(Game.dropTimer);
+        Game.dropTimer = null;
+    }
+    if (Game.goTimer) {
+        clearTimeout(Game.goTimer);
+        Game.goTimer = null;
+    }
 
     // スコア・ステージリセット
     Game.score = 0;
