@@ -19,7 +19,15 @@
     <div id="game-wrapper">
         <!-- 上部のUI（スコア、Nextボール表示など） -->
         <header id="game-header">
-            <div class="score-container">
+            <div class="header-item">
+                <span class="label">STAGE</span>
+                <span id="stage">1</span>
+            </div>
+            <div class="header-item">
+                <span class="label">TIME</span>
+                <span id="timer">60</span>
+            </div>
+            <div class="header-item">
                 <span class="label">SCORE</span>
                 <span id="score">0</span>
             </div>
@@ -45,6 +53,13 @@
             <div class="game-over-content">
                 <h2>Game Over</h2>
                 <button id="restart-button">リスタート</button>
+            </div>
+        </div>
+
+        <!-- ステージクリア画面（オーバーレイ） -->
+        <div id="clear-overlay" style="display: none;">
+            <div class="clear-content">
+                <h2>Clear !!</h2>
             </div>
         </div>
     </div>
