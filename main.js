@@ -216,6 +216,7 @@ function startGame() {
     Game.isStarted = true;
     Game.stage = 1;
     Game.score = 0;
+    Game.timeLeft = 60; // 初期時間を60秒に設定
     updateScore(0);
 
     startStage(Game.stage);
@@ -234,18 +235,32 @@ function startStage(stageNum) {
     const stageElement = document.getElementById('stage');
     if (stageElement) stageElement.textContent = Game.stage;
 
-    // 制限時間の決定 (60秒から5秒ずつ短縮、最短10秒)
-    Game.timeLeft = Math.max(10, 60 - (stageNum - 1) * 5);
+    // 制限時間の決定
+    if (stageNum > 1) {
+        // ステージが次になる時、+10秒回復する
+        Game.timeLeft += 10;
+    }
     updateTimerUI();
 
+    // ボーナスステージの判定
+    let minLevel = 1;
+    const randBonus2 = Math.random(); // 1/7の判定
+    const randBonus1 = Math.random(); // 1/5の判定
+
+    if (randBonus2 < 1/7) {
+        // ボーナスステージ2: レベル1と2が発生しない
+        minLevel = 3;
+        console.log("ボーナスステージ2判定（レベル1, 2なし）");
+    } else if (randBonus1 < 1/5) {
+        // ボーナスステージ1: レベル1が発生しない
+        minLevel = 2;
+        console.log("ボーナスステージ1判定（レベル1なし）");
+    }
+
     // ボールリストの生成
-    // レベル1〜3をランダムに選び、合計が256（黒ボール2個分）の倍数になるようにする
-    // ステージが進むほどボールの総数を増やす（例: stage 1 は 256, stage 2 は 512...）
-    // ただし一度に落としすぎると重いので、最初は 256 分だけにします。
-    // ステージごとに難易度を上げるため、必要な256のセット数を増やすことも検討。
     const targetValue = 256; // 合計値
-    Game.dropQueue = generateBallSequence(targetValue);
-    console.log(`生成されたボール数: ${Game.dropQueue.length}`);
+    Game.dropQueue = generateBallSequence(targetValue, minLevel);
+    console.log(`生成されたボール数: ${Game.dropQueue.length}, 最小レベル: ${minLevel}`);
 
     // タイマー開始（ここではまだ開始せず、ボールが全て出た後の go!! 表示後に開始する）
     if (Game.gameTimer) {
@@ -337,16 +352,26 @@ function processDropQueue() {
 }
 
 /**
- * 合計値が targetValue になるようなレベル1〜3のボールの配列を生成します。
+ * 合計値が targetValue になるようなボールの配列を生成します。
+ * @param {number} targetValue - 目標合計値
+ * @param {number} minLevel - 最小ボールレベル (1〜3)
  */
-function generateBallSequence(targetValue) {
+function generateBallSequence(targetValue, minLevel = 1) {
     const sequence = [];
     let currentTotal = 0;
 
     while (currentTotal < targetValue) {
         // 残りが必要な値より大きいレベルが出ないように制限
-        const maxLevel = Math.min(3, Math.floor(Math.log2(targetValue - currentTotal)) + 1 || 1);
-        const level = Math.floor(Math.random() * maxLevel) + 1;
+        const remainingValue = targetValue - currentTotal;
+        const maxAvailableLevel = Math.floor(Math.log2(remainingValue)) + 1;
+        const maxLevel = Math.min(3, maxAvailableLevel);
+
+        // minLevelがmaxLevelを超えないように調整（端数調整のため）
+        const effectiveMinLevel = Math.min(minLevel, maxLevel);
+
+        // effectiveMinLevel から maxLevel の範囲でランダムに選択
+        const level = Math.floor(Math.random() * (maxLevel - effectiveMinLevel + 1)) + effectiveMinLevel;
+
         sequence.push(level);
         currentTotal += Math.pow(2, level - 1);
     }
