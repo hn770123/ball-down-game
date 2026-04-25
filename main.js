@@ -18,16 +18,20 @@
  */
 const Game = {
     score: 0,
+    stage: 1,
+    timeLeft: 60,
     isStarted: false,
     isGameOver: false,
+    isClearing: false, // ステージクリア演出中かどうか
     engine: null,
     render: null,
     runner: null,
-    dropInterval: 3000, // 初期落下間隔（ミリ秒）
-    lastDropTime: 0,
-    nextDropScoreThreshold: 1000, // 次の間隔短縮スコア閾値
+    dropQueue: [], // 落下待ちのボールリスト
+    dropTimer: null,
+    gameTimer: null,
     mouseConstraint: null,
-    draggedBody: null
+    draggedBody: null,
+    lastShakeTime: 0
 };
 
 // Matter.js のモジュールエイリアス
@@ -113,8 +117,8 @@ function init() {
     // 衝突イベントの登録
     Matter.Events.on(Game.engine, 'collisionStart', handleCollision);
 
-    // ゲームオーバー判定を定期的に実行
-    Game.checkGameOverInterval = setInterval(checkGameOver, 1000);
+    // 画面外（特に下）に落ちたボールを復帰させるための監視
+    Matter.Events.on(Game.engine, 'afterUpdate', checkOutOfBounds);
 
     /**
      * 重複実行を防ぐためのイベントハンドララッパー
@@ -209,87 +213,118 @@ function startGame() {
     }
 
     Game.isStarted = true;
+    Game.stage = 1;
+    Game.score = 0;
+    updateScore(0);
 
-    // 自動落下の開始
-    startAutoDrop();
+    startStage(Game.stage);
 }
 
 /**
- * 自動落下ループを開始します。
+ * 指定したステージを開始します。
+ * @param {number} stageNum - ステージ番号
  */
-function startAutoDrop() {
-    if (Game.autoDropTimeout) {
-        clearTimeout(Game.autoDropTimeout);
-    }
+function startStage(stageNum) {
+    console.log(`ステージ ${stageNum} 開始`);
+    Game.stage = stageNum;
+    Game.isClearing = false;
 
-    const drop = () => {
-        if (Game.isGameOver || !Game.isStarted) return;
+    // ステージUI更新
+    const stageElement = document.getElementById('stage');
+    if (stageElement) stageElement.textContent = Game.stage;
 
-        const container = document.getElementById('game-container');
-        const width = container.clientWidth;
+    // 制限時間の決定 (60秒から5秒ずつ短縮、最短10秒)
+    Game.timeLeft = Math.max(10, 60 - (stageNum - 1) * 5);
+    updateTimerUI();
 
-        // レベル1〜3からランダムに選択
-        const level = Math.floor(Math.random() * 3) + 1;
+    // ボールリストの生成
+    // レベル1〜3をランダムに選び、合計が256（黒ボール2個分）の倍数になるようにする
+    // ステージが進むほどボールの総数を増やす（例: stage 1 は 256, stage 2 は 512...）
+    // ただし一度に落としすぎると重いので、最初は 256 分だけにします。
+    // ステージごとに難易度を上げるため、必要な256のセット数を増やすことも検討。
+    const targetValue = 256; // 合計値
+    Game.dropQueue = generateBallSequence(targetValue);
+    console.log(`生成されたボール数: ${Game.dropQueue.length}`);
+
+    // タイマー開始
+    if (Game.gameTimer) clearInterval(Game.gameTimer);
+    Game.gameTimer = setInterval(() => {
+        Game.timeLeft--;
+        updateTimerUI();
+        if (Game.timeLeft <= 0) {
+            handleGameOver();
+        }
+    }, 1000);
+
+    // 落下処理開始
+    processDropQueue();
+}
+
+/**
+ * 落下待ちキューを処理します。
+ */
+function processDropQueue() {
+    if (Game.isGameOver || !Game.isStarted || Game.isClearing) return;
+    if (Game.dropQueue.length === 0) return;
+
+    // 一度に最大5個落とす
+    const batchSize = Math.min(5, Game.dropQueue.length);
+    const container = document.getElementById('game-container');
+    const width = container.clientWidth;
+
+    for (let i = 0; i < batchSize; i++) {
+        const level = Game.dropQueue.shift();
         const ballType = BALL_TYPES.find(b => b.level === level);
 
-        // 左右の壁に当たらない範囲でランダムなX座標を決定
-        const margin = ballType.radius + 10;
-        const x = Math.random() * (width - margin * 2) + margin;
+        // 重ならないようにX座標を分散させる
+        // 5分割したエリアの各中央付近
+        const sectionWidth = width / batchSize;
+        const x = sectionWidth * i + sectionWidth / 2 + (Math.random() * 20 - 10);
 
         dropBall(x, level);
+    }
 
-        // 次の落下を予約
-        Game.autoDropTimeout = setTimeout(drop, Game.dropInterval);
-    };
-
-    Game.autoDropTimeout = setTimeout(drop, Game.dropInterval);
+    // 次のバッチを0.5秒後に予約
+    if (Game.dropQueue.length > 0) {
+        Game.dropTimer = setTimeout(processDropQueue, 500);
+    }
 }
 
 /**
- * 定期的に実行され、ボールがデッドラインを超えて静止しているか判定します。
+ * 合計値が targetValue になるようなレベル1〜3のボールの配列を生成します。
  */
-function checkGameOver() {
-    if (Game.isGameOver || !Game.isStarted) return;
+function generateBallSequence(targetValue) {
+    const sequence = [];
+    let currentTotal = 0;
 
-    const now = Date.now();
-
-    // シェイク後3秒間はゲームオーバー判定を行わない（改善案A）
-    if (Game.lastShakeTime && (now - Game.lastShakeTime < 3000)) {
-        return;
+    while (currentTotal < targetValue) {
+        // 残りが必要な値より大きいレベルが出ないように制限
+        const maxLevel = Math.min(3, Math.floor(Math.log2(targetValue - currentTotal)) + 1 || 1);
+        const level = Math.floor(Math.random() * maxLevel) + 1;
+        sequence.push(level);
+        currentTotal += Math.pow(2, level - 1);
     }
 
-    const container = document.getElementById('game-container');
-    const deadlineHeight = container.clientHeight * 0.15; // top: 15% に対応
+    // シャッフル
+    for (let i = sequence.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [sequence[i], sequence[j]] = [sequence[j], sequence[i]];
+    }
 
-    // ワールド内の全てのボディを取得
-    const bodies = Composite.allBodies(Game.engine.world);
+    return sequence;
+}
 
-    // ゲームオーバーとみなす条件:
-    // 1. ラベルが 'ball_' で始まる
-    // 2. Y座標（上端 = position.y - radius）がデッドラインより上 (つまり、y の値が deadlineHeight より小さい)
-    // 3. 速度がほぼ0（静止している）
-    // 4. 生成から3秒（3000ms）以上経過していること
-
-    for (const body of bodies) {
-        if (body.label && body.label.startsWith('ball_')) {
-            // 生成直後のボールは判定から除外する（3秒間の猶予）
-            if (body.createdAt && (now - body.createdAt < 3000)) {
-                continue;
-            }
-
-            // ボディの半径を取得 (circleの場合、boundsから計算可能ですが、簡易的に生成時の半径を用います)
-            // body.circleRadius は設定に依存するため、ここでは bounds でチェックします
-            const topY = body.bounds.min.y;
-
-            if (topY < deadlineHeight) {
-                // 速度（velocity）をチェック
-                const speed = Math.sqrt(body.velocity.x ** 2 + body.velocity.y ** 2);
-                if (speed < 0.1) {
-                    console.log("ゲームオーバーを検知しました", body);
-                    handleGameOver();
-                    break;
-                }
-            }
+/**
+ * タイマーUIを更新します。
+ */
+function updateTimerUI() {
+    const timerElement = document.getElementById('timer');
+    if (timerElement) {
+        timerElement.textContent = Game.timeLeft;
+        if (Game.timeLeft <= 10) {
+            timerElement.style.color = '#ff4757'; // 残り少なくなったら赤く
+        } else {
+            timerElement.style.color = '#ff6b81';
         }
     }
 }
@@ -298,13 +333,12 @@ function checkGameOver() {
  * ゲームオーバー処理を実行します。
  */
 function handleGameOver() {
-    if (Game.isGameOver) return;
+    if (Game.isGameOver || Game.isClearing) return;
     Game.isGameOver = true;
 
-    // 定期チェックを停止
-    if (Game.checkGameOverInterval) {
-        clearInterval(Game.checkGameOverInterval);
-    }
+    // タイマー類を停止
+    if (Game.gameTimer) clearInterval(Game.gameTimer);
+    if (Game.dropTimer) clearTimeout(Game.dropTimer);
 
     // オーバーレイを表示
     const overlay = document.getElementById('game-over-overlay');
@@ -314,21 +348,96 @@ function handleGameOver() {
 }
 
 /**
+ * 画面外に出たボールをチェックし、必要であれば復帰させます。
+ */
+function checkOutOfBounds() {
+    if (!Game.isStarted || Game.isGameOver) return;
+
+    const bodies = Composite.allBodies(Game.engine.world);
+    const container = document.getElementById('game-container');
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+
+    bodies.forEach(body => {
+        if (body.label && body.label.startsWith('ball_')) {
+            // 左右または下に大きくはみ出した場合
+            if (body.position.y > height + 100 || body.position.x < -100 || body.position.x > width + 100) {
+                console.log("ボールが画面外に出たため復帰させます:", body.label);
+
+                const levelStr = body.label.split('_')[1];
+                const level = parseInt(levelStr, 10);
+
+                // 元のボールを削除
+                Composite.remove(Game.engine.world, body);
+
+                // 新しく上から落とす
+                const x = Math.random() * (width - 100) + 50;
+                dropBall(x, level);
+            }
+        }
+    });
+}
+
+/**
+ * ステージクリア（全消し）を判定します。
+ */
+function checkClear() {
+    if (!Game.isStarted || Game.isGameOver || Game.isClearing) return;
+
+    // 落下待ちのボールがなく、かつフィールド上にボールが存在しない場合
+    const bodies = Composite.allBodies(Game.engine.world);
+    const ballsInField = bodies.filter(b => b.label && b.label.startsWith('ball_'));
+
+    if (Game.dropQueue.length === 0 && ballsInField.length === 0) {
+        handleClear();
+    }
+}
+
+/**
+ * ステージクリア処理を実行します。
+ */
+function handleClear() {
+    Game.isClearing = true;
+
+    // タイマー停止
+    if (Game.gameTimer) clearInterval(Game.gameTimer);
+
+    // クリアオーバーレイを表示
+    const clearOverlay = document.getElementById('clear-overlay');
+    if (clearOverlay) {
+        clearOverlay.style.display = 'flex';
+    }
+
+    console.log("ステージクリア！！");
+
+    // 2秒後に次ステージへ
+    setTimeout(() => {
+        if (clearOverlay) {
+            clearOverlay.style.display = 'none';
+        }
+        startStage(Game.stage + 1);
+    }, 2000);
+}
+
+/**
  * ゲームをリセットしてリスタートします。
  */
 function restartGame() {
     console.log("ゲームをリスタートします");
 
     // オーバーレイを非表示
-    const overlay = document.getElementById('game-over-overlay');
-    if (overlay) {
-        overlay.style.display = 'none';
-    }
+    const gameOverOverlay = document.getElementById('game-over-overlay');
+    if (gameOverOverlay) gameOverOverlay.style.display = 'none';
+    const clearOverlay = document.getElementById('clear-overlay');
+    if (clearOverlay) clearOverlay.style.display = 'none';
 
-    // スコアリセット
+    // タイマー類をクリア
+    if (Game.gameTimer) clearInterval(Game.gameTimer);
+    if (Game.dropTimer) clearTimeout(Game.dropTimer);
+
+    // スコア・ステージリセット
     Game.score = 0;
-    Game.dropInterval = 3000;
-    Game.nextDropScoreThreshold = 1000;
+    Game.stage = 1;
     updateScore(0);
 
     // ワールド内のボールをすべて削除
@@ -338,12 +447,11 @@ function restartGame() {
 
     // 状態リセット
     Game.isGameOver = false;
+    Game.isStarted = false;
+    Game.isClearing = false;
 
-    // 自動落下の再開
-    startAutoDrop();
-
-    // ゲームオーバー判定を再開
-    Game.checkGameOverInterval = setInterval(checkGameOver, 1000);
+    // ゲーム開始処理を呼ぶ
+    startGame();
 }
 
 /**
@@ -535,6 +643,9 @@ function handleCollision(event) {
             if (scoreToAdd > 0) {
                 updateScore(scoreToAdd);
             }
+
+            // 合体・消滅後にクリア判定を行う
+            checkClear();
         }, 0);
     }
 }
@@ -547,13 +658,6 @@ function handleCollision(event) {
 function updateScore(points) {
     Game.score += points;
     console.log(`スコア更新: 現在のスコア = ${Game.score}`);
-
-    // 1000点ごとに落下間隔を短くする (最小500ms)
-    while (Game.score >= Game.nextDropScoreThreshold) {
-        Game.dropInterval = Math.max(500, Game.dropInterval - 200);
-        Game.nextDropScoreThreshold += 1000;
-        console.log(`落下間隔が短縮されました: ${Game.dropInterval}ms`);
-    }
 
     // HTMLのスコア要素を更新
     const scoreElement = document.getElementById('score');
