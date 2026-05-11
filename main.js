@@ -597,12 +597,12 @@ function dropBall(x, level) {
 
 /**
  * マウス制約（ドラッグ操作）のセットアップ
- * ボールの掴みやすさ向上と、特定ボールの優先選択ロジックを実装します。
  */
 function setupMouseConstraint(container) {
     const mouse = Mouse.create(container);
 
-    // スクロールを妨げないように、マウスイベントのデフォルト動作を維持
+    // スクロールを妨げないように、マウスイベントのデフォルト動作を維持する場合の設定
+    // ただしゲーム画面内ではドラッグしたいので、適切に調整
     mouse.element.removeEventListener("mousewheel", mouse.mousewheel);
     mouse.element.removeEventListener("DOMMouseScroll", mouse.mousewheel);
 
@@ -616,84 +616,24 @@ function setupMouseConstraint(container) {
         }
     });
 
-    // デフォルトの自動選択を無効化（衝突フィルタを使用）
-    Game.mouseConstraint.collisionFilter.mask = 0x0000;
-
     Composite.add(Game.engine.world, Game.mouseConstraint);
 
-    // カスタムの掴み判定ロジック
-    Matter.Events.on(Game.mouseConstraint, 'mousedown', (event) => {
-        // ゲームが開始していない、または終了している場合は掴めない
-        if (!Game.isStarted || Game.isGameOver || Game.isClearing) return;
-
-        const mousePosition = event.mouse.position;
-        const bodies = Composite.allBodies(Game.engine.world);
-
-        let closestBody = null;
-        let minDistance = Infinity;
-
-        // レベル1のボールの拡張判定半径（ピクセル）
-        // 本来の半径15に対して、掴みやすくするために拡大
-        const LEVEL1_GRAB_RADIUS = 40;
-
-        bodies.forEach(body => {
-            if (body.label && body.label.startsWith('ball_')) {
-                const levelStr = body.label.split('_')[1];
-                const level = parseInt(levelStr, 10);
-                const ballType = BALL_TYPES.find(b => b.level === level);
-
-                if (!ballType) return;
-
-                // 判定に使用する半径。レベル1のみ拡大。
-                const effectiveRadius = (level === 1) ? LEVEL1_GRAB_RADIUS : ballType.radius;
-
-                const dx = body.position.x - mousePosition.x;
-                const dy = body.position.y - mousePosition.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-
-                // 半径以内かつ、最も中心に近いボールを選択
-                if (distance <= effectiveRadius) {
-                    if (distance < minDistance) {
-                        minDistance = distance;
-                        closestBody = body;
-                    }
-                }
-            }
-        });
-
-        if (closestBody) {
-            Game.mouseConstraint.body = closestBody;
-            Game.draggedBody = closestBody;
-
-            // 掴んだ位置のローカルオフセットを計算（回転を考慮）
-            const localOffset = {
-                x: mousePosition.x - closestBody.position.x,
-                y: mousePosition.y - closestBody.position.y
-            };
-            const cos = Math.cos(-closestBody.angle);
-            const sin = Math.sin(-closestBody.angle);
-
-            Game.mouseConstraint.constraint.pointB = {
-                x: localOffset.x * cos - localOffset.y * sin,
-                y: localOffset.x * sin + localOffset.y * cos
-            };
-
-            // 掴んでいる間は反発力を弱める
-            closestBody.restitution = 0.1;
-
-            console.log("カスタムロジックでボールを掴みました:", closestBody.label);
+    // ドラッグ開始時のイベント
+    Matter.Events.on(Game.mouseConstraint, 'startdrag', (event) => {
+        const body = event.body;
+        if (body.label && body.label.startsWith('ball_')) {
+            Game.draggedBody = body;
+            console.log("ボールを掴みました:", body.label);
+        } else {
+            // ボール以外（壁など）は掴めないようにする
+            Game.mouseConstraint.body = null;
+            Game.draggedBody = null;
         }
     });
 
     // ドラッグ終了時のイベント
-    Matter.Events.on(Game.mouseConstraint, 'mouseup', (event) => {
-        if (Game.draggedBody) {
-            // 反発力を元に戻す
-            Game.draggedBody.restitution = 0.3;
-            Game.draggedBody = null;
-        }
-        // マウス制約のボディを明示的にクリア
-        Game.mouseConstraint.body = null;
+    Matter.Events.on(Game.mouseConstraint, 'enddrag', (event) => {
+        Game.draggedBody = null;
         console.log("ボールを離しました");
     });
 
@@ -768,25 +708,10 @@ function handleCollision(event) {
                         const newX = (bodyA.position.x + bodyB.position.x) / 2;
                         const newY = (bodyA.position.y + bodyB.position.y) / 2;
 
-                    // 吸収するイメージを出すため、掴んでいる方のボールの位置と角度を優先する
-                        let spawnX = newX;
-                        let spawnY = newY;
-                    let spawnAngle = 0;
-                        if (isDraggingA) {
-                            spawnX = bodyA.position.x;
-                            spawnY = bodyA.position.y;
-                        spawnAngle = bodyA.angle;
-                        } else if (isDraggingB) {
-                            spawnX = bodyB.position.x;
-                            spawnY = bodyB.position.y;
-                        spawnAngle = bodyB.angle;
-                        }
-
-                        const newBall = Bodies.circle(spawnX, spawnY, nextBallType.radius, {
+                        const newBall = Bodies.circle(newX, newY, nextBallType.radius, {
                             restitution: 0.3,
                             friction: 0.5,
                             density: 0.005,
-                        angle: spawnAngle,
                             render: { fillStyle: nextBallType.color },
                             label: `ball_${nextBallType.level}`
                         });
@@ -819,14 +744,10 @@ function handleCollision(event) {
                 Composite.add(Game.engine.world, bodiesToAdd);
             }
 
-            // 合体後のボールを掴み状態に更新（マウスがまだ押されている場合のみ）
-            if (nextDraggedBody && Game.mouseConstraint.mouse.button !== -1) {
+            // 合体後のボールを掴み状態に更新
+            if (nextDraggedBody) {
                 Game.draggedBody = nextDraggedBody;
                 Game.mouseConstraint.body = nextDraggedBody;
-                // 合体時は中心を掴むようにオフセットをリセット
-                Game.mouseConstraint.constraint.pointB = { x: 0, y: 0 };
-                // 反発力を弱めた状態を維持
-                nextDraggedBody.restitution = 0.1;
             }
 
             if (scoreToAdd > 0) {
