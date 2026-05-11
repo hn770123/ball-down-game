@@ -118,9 +118,6 @@ function init() {
     // 衝突イベントの登録
     Matter.Events.on(Game.engine, 'collisionStart', handleCollision);
 
-    // 更新前のクリーンアップ処理
-    Matter.Events.on(Game.engine, 'beforeUpdate', handleBeforeUpdate);
-
     // 画面外（特に下）に落ちたボールを復帰させるための監視
     Matter.Events.on(Game.engine, 'afterUpdate', checkOutOfBounds);
 
@@ -439,24 +436,6 @@ function handleGameOver() {
 }
 
 /**
- * 毎フレームの更新前に呼ばれる処理。
- * ドラッグ状態の不整合を解消します。
- */
-function handleBeforeUpdate() {
-    // マウスが離されているのにボディを掴んでいる状態になっている場合、強制的に解除
-    if (Game.mouseConstraint && Game.mouseConstraint.mouse.button === -1) {
-        if (Game.mouseConstraint.body || Game.draggedBody) {
-            console.log("ドラッグ状態の不整合を検知したためクリアします");
-            if (Game.draggedBody) {
-                Game.draggedBody.restitution = 0.3;
-                Game.draggedBody = null;
-            }
-            Game.mouseConstraint.body = null;
-        }
-    }
-}
-
-/**
  * 画面外に出たボールをチェックし、必要であれば復帰させます。
  */
 function checkOutOfBounds() {
@@ -472,12 +451,6 @@ function checkOutOfBounds() {
             // 左右または下に大きくはみ出した場合
             if (body.position.y > height + 100 || body.position.x < -100 || body.position.x > width + 100) {
                 console.log("ボールが画面外に出たため復帰させます:", body.label);
-
-                // 掴んでいるボールが消える場合はドラッグ状態をリセット
-                if (Game.draggedBody && Game.draggedBody.id === body.id) {
-                    Game.draggedBody = null;
-                    if (Game.mouseConstraint) Game.mouseConstraint.body = null;
-                }
 
                 const levelStr = body.label.split('_')[1];
                 const level = parseInt(levelStr, 10);
@@ -659,9 +632,9 @@ function setupMouseConstraint(container) {
         let closestBody = null;
         let minDistance = Infinity;
 
-        // 全てのボールに対して、最小限の掴み判定半径（ピクセル）を確保
-        // 小さいボールでもスマホの指で掴みやすくする
-        const MIN_GRAB_RADIUS = 40;
+        // レベル1のボールの拡張判定半径（ピクセル）
+        // 本来の半径15に対して、掴みやすくするために拡大
+        const LEVEL1_GRAB_RADIUS = 40;
 
         bodies.forEach(body => {
             if (body.label && body.label.startsWith('ball_')) {
@@ -671,8 +644,8 @@ function setupMouseConstraint(container) {
 
                 if (!ballType) return;
 
-                // 判定に使用する半径。本来の半径か最小半径の大きい方を使用。
-                const effectiveRadius = Math.max(ballType.radius, MIN_GRAB_RADIUS);
+                // 判定に使用する半径。レベル1のみ拡大。
+                const effectiveRadius = (level === 1) ? LEVEL1_GRAB_RADIUS : ballType.radius;
 
                 const dx = body.position.x - mousePosition.x;
                 const dy = body.position.y - mousePosition.y;
@@ -840,11 +813,6 @@ function handleCollision(event) {
     if (bodiesToRemove.length > 0 || bodiesToAdd.length > 0 || scoreToAdd > 0) {
         setTimeout(() => {
             if (bodiesToRemove.length > 0) {
-                // 掴んでいるボールが削除対象に含まれている場合、一旦クリア
-                if (Game.draggedBody && bodiesToRemove.some(b => b.id === Game.draggedBody.id)) {
-                    Game.draggedBody = null;
-                    if (Game.mouseConstraint) Game.mouseConstraint.body = null;
-                }
                 Composite.remove(Game.engine.world, bodiesToRemove);
             }
             if (bodiesToAdd.length > 0) {

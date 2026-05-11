@@ -89,7 +89,6 @@ body {
     flex-grow: 1; /* 残りの高さをすべて占有 */
     background-color: #f0f8ff; /* パステルブルーのコンテナ背景 */
     width: 100%;
-    touch-action: none; /* Safariのブラウザジェスチャーを無効化 */
 }
 
 /* デッドライン（制限ライン） - 新ルールでは使用しないため非表示 */
