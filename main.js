@@ -746,8 +746,17 @@ function handleCollision(event) {
 
             // 合体後のボールを掴み状態に更新
             if (nextDraggedBody) {
+                // 1. MouseConstraint が認識する現在のボディを更新
                 Game.draggedBody = nextDraggedBody;
                 Game.mouseConstraint.body = nextDraggedBody;
+
+                // 2. 内部的な物理制約の対象 (bodyB) を新しいボディに接続
+                // これにより、Matter.js内部の制約が新しいボディを引き続き保持します
+                Game.mouseConstraint.constraint.bodyB = nextDraggedBody;
+
+                // 3. 掴み位置（オフセット）をリセット
+                // これにより、合体後の新しいボールの中心がマウス/指の位置に吸い付きます
+                Game.mouseConstraint.constraint.pointB = { x: 0, y: 0 };
             }
 
             if (scoreToAdd > 0) {
