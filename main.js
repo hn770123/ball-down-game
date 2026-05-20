@@ -32,7 +32,12 @@ const Game = {
     goTimer: null,
     mouseConstraint: null,
     draggedBody: null,
-    lastShakeTime: 0
+    lastShakeTime: 0,
+    background: {
+        particles: [],
+        polygons: []
+    },
+    effects: [] // 火花パーティクルなどのエフェクト
 };
 
 // Matter.js のモジュールエイリアス
@@ -46,17 +51,18 @@ const Engine = Matter.Engine,
 
 /**
  * 8種類のボールの定義
- * レベル1（最小）からレベル8（最大）までのサイズと色を設定します。
+ * レベル1（最小）からレベル8（最大）までのサイズと配色を設定します。
+ * 配色は design_improvement_plan.md に基づいています。
  */
 const BALL_TYPES = [
-    { level: 1, radius: 15, color: '#ff6b81', name: 'Pink', emoji: '😀' },   // 1. ピンク
-    { level: 2, radius: 25, color: '#ff4757', name: 'Red', emoji: '😃' },    // 2. 赤
-    { level: 3, radius: 35, color: '#1e90ff', name: 'Blue', emoji: '😄' },   // 3. 青
-    { level: 4, radius: 45, color: '#9c88ff', name: 'Purple', emoji: '😁' }, // 4. 紫
-    { level: 5, radius: 55, color: '#eccc68', name: 'Yellow', emoji: '😆' }, // 5. 黄色
-    { level: 6, radius: 65, color: '#2ed573', name: 'Green', emoji: '🥹' },  // 6. 緑
-    { level: 7, radius: 80, color: '#d2b48c', name: 'Brown', emoji: '☺️' },  // 7. 茶色（※色は適宜パステル調に調整）
-    { level: 8, radius: 100, color: '#2f3542', name: 'Black', emoji: '😊' }  // 8. 黒
+    { level: 1, radius: 15, color: '#A020F0', highlight: '#E0B0FF', shadow: '#6000A0', name: 'Amethyst' },
+    { level: 2, radius: 25, color: '#FF69B4', highlight: '#FFB6C1', shadow: '#C71585', name: 'Rose Quartz' },
+    { level: 3, radius: 35, color: '#00CED1', highlight: '#AFEEEE', shadow: '#008B8B', name: 'Aquamarine' },
+    { level: 4, radius: 45, color: '#32CD32', highlight: '#98FB98', shadow: '#006400', name: 'Emerald' },
+    { level: 5, radius: 55, color: '#FF8C00', highlight: '#FFD700', shadow: '#B8860B', name: 'Citrine' },
+    { level: 6, radius: 65, color: '#FF4500', highlight: '#FFA07A', shadow: '#8B0000', name: 'Ruby' },
+    { level: 7, radius: 80, color: '#1E90FF', highlight: '#87CEFA', shadow: '#00008B', name: 'Sapphire' },
+    { level: 8, radius: 100, color: '#FFD700', highlight: '#FFFACD', shadow: '#DAA520', name: 'Gold' }
 ];
 
 /**
@@ -82,7 +88,8 @@ function init() {
             width: width,
             height: height,
             wireframes: false, // 塗りつぶし描画を有効にする
-            background: 'transparent' // 透明にしてCSSの背景色を活かす
+            background: 'transparent', // 透明にしてCSS的背景色を活かす
+            clearCanvas: false // beforeRender で描画した背景を残すため
         }
     });
 
@@ -120,6 +127,19 @@ function init() {
 
     // 画面外（特に下）に落ちたボールを復帰させるための監視
     Matter.Events.on(Game.engine, 'afterUpdate', checkOutOfBounds);
+
+    // 背景の初期化
+    initBackground(width, height);
+
+    // 背景の描画処理を追加
+    Matter.Events.on(Game.render, 'beforeRender', function() {
+        drawBackground(Game.render.context, width, height);
+    });
+
+    // エフェクトの描画処理を追加
+    Matter.Events.on(Game.render, 'afterRender', function() {
+        drawEffects(Game.render.context);
+    });
 
     /**
      * 重複実行を防ぐためのイベントハンドララッパー
@@ -160,13 +180,10 @@ function init() {
         console.log("ゲームオーバー音の読み込みが完了しました");
     });
 
-    // 絵文字の描画処理を追加
+    // ボールのリッチな3D描画処理
     Matter.Events.on(Game.render, 'afterRender', function() {
         const context = Game.render.context;
         const bodies = Composite.allBodies(Game.engine.world);
-
-        context.textAlign = 'center';
-        context.textBaseline = 'middle';
 
         for (let i = 0; i < bodies.length; i++) {
             const body = bodies[i];
@@ -175,15 +192,48 @@ function init() {
                 const level = parseInt(levelStr, 10);
                 const ballType = BALL_TYPES.find(b => b.level === level);
 
-                if (ballType && ballType.emoji) {
-                    const fontSize = ballType.radius * 1.2; // ボールのサイズに合わせる
-                    context.font = `${fontSize}px Arial`;
+                if (ballType) {
+                    const { x, y } = body.position;
+                    const r = ballType.radius;
 
-                    // 回転を考慮して描画
                     context.save();
-                    context.translate(body.position.x, body.position.y);
+                    context.translate(x, y);
                     context.rotate(body.angle);
-                    context.fillText(ballType.emoji, 0, 0);
+
+                    // 1. 外側の淡いグロー効果
+                    context.shadowBlur = 15;
+                    context.shadowColor = ballType.color;
+
+                    // 2. 本体（ベースカラー）の描画
+                    context.beginPath();
+                    context.arc(0, 0, r, 0, Math.PI * 2);
+                    context.fillStyle = ballType.color;
+                    context.fill();
+
+                    // シャドウのリセット（これ以降の描画に影をつけない）
+                    context.shadowBlur = 0;
+
+                    // 3. 3D感を出すための放射状グラデーション
+                    // 中心から少し左上にずらした位置にハイライトを配置
+                    const gradient = context.createRadialGradient(
+                        -r * 0.3, -r * 0.3, r * 0.1,
+                        0, 0, r
+                    );
+                    gradient.addColorStop(0, ballType.highlight); // ハイライト
+                    gradient.addColorStop(0.5, ballType.color);    // ベースカラー
+                    gradient.addColorStop(1, ballType.shadow);     // シャドウ（縁）
+
+                    context.beginPath();
+                    context.arc(0, 0, r, 0, Math.PI * 2);
+                    context.fillStyle = gradient;
+                    context.fill();
+
+                    // 4. 表面の光沢（Specular Highlight）
+                    context.beginPath();
+                    context.ellipse(-r * 0.35, -r * 0.35, r * 0.25, r * 0.15, Math.PI * 0.25, 0, Math.PI * 2);
+                    context.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                    context.fill();
+
                     context.restore();
                 }
             }
@@ -687,9 +737,12 @@ function handleCollision(event) {
                 const isDraggingA = (Game.draggedBody && Game.draggedBody.id === bodyA.id);
                 const isDraggingB = (Game.draggedBody && Game.draggedBody.id === bodyB.id);
 
-                // レベル8（黒）の場合は特大ボーナスだけ入り、新たなボールは生成されない
+                // レベル8（金）の場合は特大ボーナスだけ入り、新たなボールは生成されない
                 if (currentLevel === 8) {
-                    console.log("最大ボール（黒）同士が衝突し、消滅しました！");
+                    console.log("最大ボール（金）同士が衝突し、消滅しました！");
+                    // 火花エフェクトの生成
+                    createSparkParticles((bodyA.position.x + bodyB.position.x) / 2, (bodyA.position.y + bodyB.position.y) / 2, '#FFD700');
+
                     // 消滅音は鳴らさない
                     // 特大ボーナス（例: 1000点）
                     scoreToAdd += 1000;
@@ -839,4 +892,125 @@ function playSound(buffer) {
     // 出力先（スピーカー）に接続して再生開始
     source.connect(audioCtx.destination);
     source.start(0);
+}
+
+/**
+ * 背景のパーティクルとポリゴンを初期化します。
+ */
+function initBackground(width, height) {
+    // 星屑（パーティクル）の生成
+    Game.background.particles = [];
+    for (let i = 0; i < 50; i++) {
+        Game.background.particles.push({
+            x: Math.random() * width,
+            y: Math.random() * height,
+            size: Math.random() * 2,
+            speed: 0.1 + Math.random() * 0.3,
+            opacity: 0.1 + Math.random() * 0.5
+        });
+    }
+
+    // ポリゴン風の装飾（静的な三角形をいくつか配置）
+    Game.background.polygons = [];
+    for (let i = 0; i < 15; i++) {
+        const x = Math.random() * width;
+        const y = Math.random() * height;
+        const size = 100 + Math.random() * 200;
+        Game.background.polygons.push({
+            points: [
+                { x: x + (Math.random() - 0.5) * size, y: y + (Math.random() - 0.5) * size },
+                { x: x + (Math.random() - 0.5) * size, y: y + (Math.random() - 0.5) * size },
+                { x: x + (Math.random() - 0.5) * size, y: y + (Math.random() - 0.5) * size }
+            ],
+            color: `rgba(100, 50, 150, ${0.05 + Math.random() * 0.05})` // 少し明るい紫色に
+        });
+    }
+}
+
+/**
+ * 背景を描画します。
+ */
+function drawBackground(context, width, height) {
+    // 背景グラデーションの描画
+    const bgGradient = context.createLinearGradient(0, 0, width, height);
+    bgGradient.addColorStop(0, '#1A0033');
+    bgGradient.addColorStop(0.5, '#0D001A');
+    bgGradient.addColorStop(1, '#000000');
+    context.fillStyle = bgGradient;
+    context.fillRect(0, 0, width, height);
+
+    // ポリゴンの描画
+    Game.background.polygons.forEach(poly => {
+        context.beginPath();
+        context.moveTo(poly.points[0].x, poly.points[0].y);
+        context.lineTo(poly.points[1].x, poly.points[1].y);
+        context.lineTo(poly.points[2].x, poly.points[2].y);
+        context.closePath();
+        context.fillStyle = poly.color;
+        context.fill();
+    });
+
+    // パーティクルの更新と描画
+    context.fillStyle = '#FFFFFF';
+    Game.background.particles.forEach(p => {
+        p.y += p.speed;
+        if (p.y > height) p.y = 0;
+
+        // 明滅効果を追加
+        const twinkle = 0.5 + Math.sin(Date.now() * 0.002 + p.x) * 0.5;
+        context.globalAlpha = p.opacity * twinkle;
+
+        context.beginPath();
+        context.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        context.fill();
+    });
+    context.globalAlpha = 1.0;
+}
+
+/**
+ * 火花パーティクルを生成します。
+ */
+function createSparkParticles(x, y, color) {
+    for (let i = 0; i < 30; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 2 + Math.random() * 5;
+        Game.effects.push({
+            x: x,
+            y: y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            size: 2 + Math.random() * 3,
+            color: color,
+            life: 1.0, // 寿命 (1.0 -> 0.0)
+            decay: 0.02 + Math.random() * 0.03
+        });
+    }
+}
+
+/**
+ * エフェクトを描画・更新します。
+ */
+function drawEffects(context) {
+    for (let i = Game.effects.length - 1; i >= 0; i--) {
+        const p = Game.effects[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.1; // 重力
+        p.life -= p.decay;
+
+        if (p.life <= 0) {
+            Game.effects.splice(i, 1);
+            continue;
+        }
+
+        context.globalAlpha = p.life;
+        context.fillStyle = p.color;
+        context.shadowBlur = 10;
+        context.shadowColor = p.color;
+        context.beginPath();
+        context.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        context.fill();
+        context.shadowBlur = 0;
+    }
+    context.globalAlpha = 1.0;
 }
