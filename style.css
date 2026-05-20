@@ -13,8 +13,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@500;700&display=swap');
 
 body {
-    /* パステル調の背景色（画面全体） */
-    background-color: #fdf6e3;
+    /* 深い紫から黒へのグラデーション背景 */
+    background: linear-gradient(135deg, #1A0033 0%, #0D001A 50%, #000000 100%);
     font-family: 'Quicksand', 'Helvetica Neue', Arial, sans-serif;
     display: flex;
     justify-content: center;
@@ -32,25 +32,28 @@ body {
     width: 100%;
     max-width: 450px; /* PCなどで広がりすぎないように制限 */
     aspect-ratio: 9 / 16;
-    background-color: #ffffff;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    background-color: transparent;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
     border-radius: 16px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
 }
 
-/* 上部UI（スコア・Next表示） */
+/* 上部UI（スコア・Next表示）：グラスモフィズム */
 #game-header {
     display: flex;
     justify-content: space-around;
     align-items: center;
     padding: 8px 12px;
-    background-color: #ffd1dc; /* パステルピンク */
-    color: #555;
+    background-color: rgba(255, 255, 255, 0.1); /* グラスモフィズム */
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: #fff;
     font-weight: bold;
     height: 15%; /* 全体の15%の高さ */
     z-index: 10;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .header-item {
@@ -61,14 +64,15 @@ body {
 
 .label {
     font-size: 0.7rem;
-    color: #888;
+    color: #ccc;
     margin-bottom: 2px;
 }
 
 #score, #timer, #stage {
     font-size: 1.2rem;
-    color: #ff6b81;
+    color: #FFD700; /* ゴールド */
     transition: transform 0.2s ease;
+    text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
 }
 
 /* スコア加算時のアニメーションクラス */
@@ -87,7 +91,7 @@ body {
 #game-container {
     position: relative;
     flex-grow: 1; /* 残りの高さをすべて占有 */
-    background-color: #f0f8ff; /* パステルブルーのコンテナ背景 */
+    background-color: transparent;
     width: 100%;
     touch-action: none; /* スマートフォンでのブラウザ標準挙動（スクロール等）を無効化 */
 }
@@ -111,7 +115,7 @@ body {
     left: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(255, 255, 255, 0.9);
+    background-color: rgba(0, 0, 0, 0.6);
     display: flex;
     justify-content: center;
     align-items: center;
@@ -119,28 +123,33 @@ body {
 }
 
 .game-start-content {
-    background-color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     padding: 30px;
-    border-radius: 12px;
+    border-radius: 20px;
     text-align: center;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
 }
 
 .game-start-content h2 {
-    color: #ff6b81;
+    color: #FFD700;
     margin-bottom: 10px;
     font-size: 1.8rem;
+    text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
 }
 
 .game-start-content p {
-    color: #555;
+    color: #ddd;
     margin-bottom: 20px;
     font-size: 1rem;
     line-height: 1.5;
 }
 
 #start-button {
-    background-color: #1e90ff;
+    background: linear-gradient(135deg, #32CD32 0%, #006400 100%);
     color: white;
     border: none;
     padding: 12px 30px;
@@ -148,11 +157,13 @@ body {
     font-weight: bold;
     border-radius: 8px;
     cursor: pointer;
-    transition: background-color 0.2s ease;
+    transition: all 0.3s ease;
+    box-shadow: 0 0 15px rgba(50, 205, 50, 0.4);
 }
 
 #start-button:hover {
-    background-color: #1c7ed6;
+    transform: scale(1.05);
+    box-shadow: 0 0 20px rgba(50, 205, 50, 0.6);
 }
 
 #start-button:active {
@@ -174,12 +185,16 @@ body {
 }
 
 .game-over-content {
-    background-color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     padding: 30px;
-    border-radius: 12px;
+    border-radius: 20px;
     text-align: center;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+    color: #fff;
 }
 
 @keyframes popIn {
@@ -191,10 +206,11 @@ body {
     color: #ff4757;
     margin-bottom: 20px;
     font-size: 2rem;
+    text-shadow: 0 0 10px rgba(255, 71, 87, 0.5);
 }
 
 #restart-button {
-    background-color: #2ed573;
+    background: linear-gradient(135deg, #32CD32 0%, #006400 100%);
     color: white;
     border: none;
     padding: 12px 24px;
@@ -202,7 +218,8 @@ body {
     font-weight: bold;
     border-radius: 8px;
     cursor: pointer;
-    transition: background-color 0.2s ease;
+    transition: all 0.3s ease;
+    box-shadow: 0 0 15px rgba(50, 205, 50, 0.4);
 }
 
 #restart-button:hover {
@@ -220,7 +237,7 @@ body {
     left: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(255, 255, 255, 0.4); /* 控えめな半透明白 */
+    background-color: rgba(0, 0, 0, 0.3);
     display: flex;
     justify-content: center;
     align-items: center;
@@ -229,11 +246,14 @@ body {
 }
 
 .clear-content {
-    background-color: rgba(255, 255, 255, 0.9);
+    background-color: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     padding: 20px 40px;
     border-radius: 50px;
     text-align: center;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     animation: bounceIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
 }
 
@@ -245,11 +265,11 @@ body {
 }
 
 .clear-content h2 {
-    color: #ff4757;
+    color: #FFD700;
     margin: 0;
     font-size: 2.5rem;
     font-style: italic;
-    text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+    text-shadow: 0 0 15px rgba(255, 215, 0, 0.6);
 }
 
 /* "go!!" オーバーレイ */
