@@ -23,6 +23,7 @@ const Game = {
     isStarted: false,
     isGameOver: false,
     isClearing: false, // ステージクリア演出中かどうか
+    isWaterMode: false, // 水中モード（物理挙動調整）フラグ
     engine: null,
     render: null,
     runner: null,
@@ -127,6 +128,22 @@ function init() {
 
     // 画面外（特に下）に落ちたボールを復帰させるための監視
     Matter.Events.on(Game.engine, 'afterUpdate', checkOutOfBounds);
+
+    // 水中モード時のドラッグ操作中の抵抗調整
+    Matter.Events.on(Game.engine, 'beforeUpdate', () => {
+        if (!Game.isWaterMode) return;
+
+        const bodies = Composite.allBodies(Game.engine.world);
+        bodies.forEach(body => {
+            if (body.label && body.label.startsWith('ball_')) {
+                if (Game.draggedBody && body.id === Game.draggedBody.id) {
+                    body.frictionAir = 0.02; // 操作中は抵抗を減らしてキビキビ動かす
+                } else {
+                    body.frictionAir = 0.15; // それ以外は水中抵抗
+                }
+            }
+        });
+    });
 
     // 背景の初期化
     initBackground(width, height);
@@ -280,6 +297,7 @@ function startStage(stageNum) {
     console.log(`ステージ ${stageNum} 開始`);
     Game.stage = stageNum;
     Game.isClearing = false;
+    Game.isWaterMode = false; // 水中モードをリセット
 
     // ステージUI更新
     const stageElement = document.getElementById('stage');
@@ -359,6 +377,21 @@ function showGoOverlay() {
             goOverlay.style.display = 'none';
         }
         Game.goTimer = null;
+
+        // 水中モードを有効化し、既存のボールに物理プロパティを適用
+        Game.isWaterMode = true;
+        const bodies = Composite.allBodies(Game.engine.world);
+        bodies.forEach(body => {
+            if (body.label && body.label.startsWith('ball_')) {
+                Matter.Body.set(body, {
+                    frictionAir: 0.15,
+                    restitution: 0,
+                    slop: 0.8,
+                    density: 0.01
+                });
+            }
+        });
+
         startGameTimer();
     }, 1000);
 }
@@ -613,16 +646,41 @@ function restartGame() {
     Game.isGameOver = false;
     Game.isStarted = false;
     Game.isClearing = false;
+    Game.isWaterMode = false;
 
     // ゲーム開始処理を呼ぶ
     startGame();
 }
 
 /**
+ * ボールの物理プロパティ設定（水中モード対応）を取得します。
+ * @param {object} ballType - BALL_TYPES の要素
+ * @returns {object} Matter.js のボディオプション
+ */
+function getBallOptions(ballType) {
+    const options = {
+        restitution: 0.3,
+        friction: 0.5,
+        density: 0.005,
+        render: { fillStyle: ballType.color },
+        label: `ball_${ballType.level}`
+    };
+
+    if (Game.isWaterMode) {
+        options.frictionAir = 0.15;
+        options.restitution = 0;
+        options.slop = 0.8;
+        options.density = 0.01;
+    }
+
+    return options;
+}
+
+/**
  * 指定した座標とレベルからボールを落下させる処理です。
  *
  * @param {number} x - 落とすボールのx座標（ピクセル）
- * @param {number} level - 落とすボールのレベル（1〜3）
+ * @param {number} level - 落とすボール의レベル（1〜3）
  */
 function dropBall(x, level) {
     if (Game.isGameOver || !Game.isStarted) return;
@@ -632,14 +690,8 @@ function dropBall(x, level) {
 
     const y = -50; // 画面外上部から落下させる
 
-    // 新しいボールのボディを作成
-    const newBall = Bodies.circle(x, y, ballType.radius, {
-        restitution: 0.3,
-        friction: 0.5,
-        density: 0.005,
-        render: { fillStyle: ballType.color },
-        label: `ball_${ballType.level}`
-    });
+    const ballOptions = getBallOptions(ballType);
+    const newBall = Bodies.circle(x, y, ballType.radius, ballOptions);
 
     newBall.createdAt = Date.now();
     Composite.add(Game.engine.world, newBall);
@@ -761,13 +813,8 @@ function handleCollision(event) {
                         const newX = (bodyA.position.x + bodyB.position.x) / 2;
                         const newY = (bodyA.position.y + bodyB.position.y) / 2;
 
-                        const newBall = Bodies.circle(newX, newY, nextBallType.radius, {
-                            restitution: 0.3,
-                            friction: 0.5,
-                            density: 0.005,
-                            render: { fillStyle: nextBallType.color },
-                            label: `ball_${nextBallType.level}`
-                        });
+                        const ballOptions = getBallOptions(nextBallType);
+                        const newBall = Bodies.circle(newX, newY, nextBallType.radius, ballOptions);
 
                         // 生成時刻を記録（ゲームオーバー判定の猶予時間用）
                         newBall.createdAt = Date.now();
@@ -933,9 +980,17 @@ function initBackground(width, height) {
 function drawBackground(context, width, height) {
     // 背景グラデーションの描画
     const bgGradient = context.createLinearGradient(0, 0, width, height);
-    bgGradient.addColorStop(0, '#1A0033');
-    bgGradient.addColorStop(0.5, '#0D001A');
-    bgGradient.addColorStop(1, '#000000');
+    if (Game.isWaterMode) {
+        // 水中モードの背景色（青みを追加）
+        bgGradient.addColorStop(0, '#001133');
+        bgGradient.addColorStop(0.5, '#00081A');
+        bgGradient.addColorStop(1, '#000000');
+    } else {
+        // 通常モードの背景色
+        bgGradient.addColorStop(0, '#1A0033');
+        bgGradient.addColorStop(0.5, '#0D001A');
+        bgGradient.addColorStop(1, '#000000');
+    }
     context.fillStyle = bgGradient;
     context.fillRect(0, 0, width, height);
 
@@ -953,7 +1008,9 @@ function drawBackground(context, width, height) {
     // パーティクルの更新と描画
     context.fillStyle = '#FFFFFF';
     Game.background.particles.forEach(p => {
-        p.y += p.speed;
+        // 水中モードでは移動速度を落とす
+        const currentSpeed = Game.isWaterMode ? p.speed * 0.4 : p.speed;
+        p.y += currentSpeed;
         if (p.y > height) p.y = 0;
 
         // 明滅効果を追加
